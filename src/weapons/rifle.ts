@@ -79,6 +79,16 @@ export class Rifle {
     return base + (moving + air + this.bloom) * steadiness;
   }
 
+  /** Full magazine, sights down, ready for a new run. */
+  reset() {
+    this.ammo = CONFIG.rifle.magazineSize;
+    this.reloading = false;
+    this.reloadProgress = 0;
+    this.aimBlend = 0;
+    this.bloom = 0;
+    this.cooldown = 0;
+  }
+
   private startReload() {
     this.reloading = true;
     this.reloadTimer = CONFIG.rifle.reloadTime;

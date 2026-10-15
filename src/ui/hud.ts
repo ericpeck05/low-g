@@ -1,21 +1,14 @@
 import * as THREE from 'three';
 import type { Player } from '../player/player';
+import type { Scoring } from '../targets/scoring';
 import type { Rifle } from '../weapons/rifle';
 
-// The on-screen overlay: start/pause screen, jetpack fuel bar,
-// a sensitivity readout, and a small debug panel for tuning movement.
+// The in-game overlay: crosshair, hit marker, ammo, jetpack fuel, score,
+// timer, floating score popups, and a small debug panel for tuning movement.
 const STYLE = `
   .hud { position: fixed; inset: 0; pointer-events: none; color: #f5f0e8;
          font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px;
          letter-spacing: 0.05em; }
-  .hud-start { position: absolute; inset: 0; display: flex; flex-direction: column;
-               align-items: center; justify-content: center; gap: 18px;
-               background: rgba(0,0,0,0.6); pointer-events: auto; cursor: pointer; }
-  .hud-start h1 { margin: 0; font-size: 56px; letter-spacing: 0.3em; color: #ffa31a; }
-  .hud-start .prompt { font-size: 16px; }
-  .hud-start table { border-collapse: collapse; color: #bdb6aa; }
-  .hud-start td { padding: 2px 12px; }
-  .hud-start td:first-child { text-align: right; color: #ffa31a; }
   .hud-fuel { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%);
               width: 260px; text-align: center; }
   .hud-fuel .bar { height: 8px; margin-top: 6px; border: 1px solid #f5f0e8; }
@@ -23,12 +16,23 @@ const STYLE = `
   .hud-fuel.empty .fill { background: #ff5a1f; }
   .hud-toast { position: absolute; left: 50%; top: 40%; transform: translateX(-50%);
                transition: opacity 0.3s; opacity: 0; }
-  .hud-debug { position: absolute; left: 16px; top: 16px; white-space: pre; color: #bdb6aa; }
+  .hud-debug { position: absolute; left: 16px; top: 16px; white-space: pre; color: #8a8379; font-size: 11px; }
   .hud-crosshair { position: absolute; left: 50%; top: 50%; transition: opacity 0.1s; }
   .hud-crosshair div { position: absolute; background: #f5f0e8; box-shadow: 0 0 2px #000; }
   .hud-crosshair .h { width: 10px; height: 2px; margin-top: -1px; }
   .hud-crosshair .v { width: 2px; height: 10px; margin-left: -1px; }
   .hud-crosshair .dot { width: 2px; height: 2px; margin: -1px 0 0 -1px; }
+  .hud-hitmarker { position: absolute; left: 50%; top: 50%; opacity: 0; }
+  .hud-hitmarker div { position: absolute; width: 12px; height: 2px; margin: -1px 0 0 -6px;
+                       background: #f5f0e8; box-shadow: 0 0 2px #000; }
+  .hud-hitmarker.bullseye div { background: #ffa31a; }
+  .hud-popups { position: absolute; left: 50%; top: 50%; }
+  .hud-popup { position: absolute; left: 0; top: -60px; transform: translateX(-50%);
+               white-space: nowrap; text-align: center; font-size: 15px;
+               text-shadow: 0 0 4px #000; animation: hud-rise 0.9s ease-out forwards; }
+  .hud-popup.bullseye { color: #ffa31a; font-size: 18px; }
+  @keyframes hud-rise { from { transform: translate(-50%, 0); opacity: 1; }
+                        to { transform: translate(-50%, -40px); opacity: 0; } }
   .hud-ammo { position: absolute; right: 40px; bottom: 36px; text-align: right; }
   .hud-ammo .count { font-size: 40px; line-height: 1; }
   .hud-ammo .count.low { color: #ffa31a; }
@@ -37,95 +41,127 @@ const STYLE = `
   .hud-ammo .status { height: 16px; margin-top: 6px; color: #ffa31a; }
   .hud-ammo .bar { height: 3px; width: 120px; margin-left: auto; margin-top: 4px; background: #333; }
   .hud-ammo .bar div { height: 100%; width: 0; background: #ffa31a; }
+  .hud-score { position: absolute; right: 40px; top: 28px; text-align: right; }
+  .hud-score .points { font-size: 34px; line-height: 1; }
+  .hud-score .label { color: #8a8379; font-size: 11px; }
+  .hud-score .combo { margin-top: 8px; font-size: 16px; color: #ffa31a; min-height: 20px; }
+  .hud-score .accuracy { margin-top: 4px; color: #bdb6aa; }
+  .hud-timer { position: absolute; left: 50%; top: 24px; transform: translateX(-50%);
+               font-size: 32px; display: none; }
+  .hud-timer.urgent { color: #ffa31a; }
 `;
 
-const CONTROLS: [string, string][] = [
-  ['W A S D', 'move'],
-  ['MOUSE', 'look'],
-  ['LEFT CLICK', 'shoot'],
-  ['RIGHT CLICK', 'aim down sights'],
-  ['R', 'reload'],
-  ['SPACE', 'jump'],
-  ['HOLD SPACE', 'jetpack (in the air)'],
-  ['SHIFT', 'sprint'],
-  ['C', 'crouch'],
-  ['[  ]', 'mouse sensitivity'],
-  ['ESC', 'release mouse'],
-];
-
 export class Hud {
-  private start: HTMLElement;
+  private root: HTMLElement;
   private fuel: HTMLElement;
   private fuelFill: HTMLElement;
   private toast: HTMLElement;
   private debug: HTMLElement;
   private crosshair: HTMLElement;
   private crosshairArms: { l: HTMLElement; r: HTMLElement; t: HTMLElement; b: HTMLElement };
+  private hitmarker: HTMLElement;
+  private popups: HTMLElement;
   private ammoCount: HTMLElement;
   private ammoMax: HTMLElement;
   private ammoStatus: HTMLElement;
   private reloadBar: HTMLElement;
+  private scorePoints: HTMLElement;
+  private scoreCombo: HTMLElement;
+  private scoreAccuracy: HTMLElement;
+  private timer: HTMLElement;
   private toastTimer = 0;
+  private hitmarkerTime = 0;
 
-  constructor(onStartClick: () => void) {
+  constructor() {
     const style = document.createElement('style');
     style.textContent = STYLE;
     document.head.appendChild(style);
 
-    const root = document.createElement('div');
-    root.className = 'hud';
-    root.innerHTML = `
+    this.root = document.createElement('div');
+    this.root.className = 'hud';
+    this.root.innerHTML = `
       <div class="hud-crosshair">
         <div class="dot"></div><div class="h l"></div><div class="h r"></div>
         <div class="v t"></div><div class="v b"></div>
       </div>
+      <div class="hud-hitmarker"><div></div><div></div><div></div><div></div></div>
+      <div class="hud-popups"></div>
+      <div class="hud-debug"></div>
+      <div class="hud-toast"></div>
+      <div class="hud-timer"></div>
+      <div class="hud-score">
+        <div class="label">SCORE</div><div class="points">0</div>
+        <div class="combo"></div><div class="accuracy"></div>
+      </div>
+      <div class="hud-fuel">JETPACK<div class="bar"><div class="fill"></div></div></div>
       <div class="hud-ammo">
         <span class="count">30</span><span class="max"> / 30</span>
         <div class="status"></div><div class="bar"><div></div></div>
-      </div>
-      <div class="hud-debug"></div>
-      <div class="hud-toast"></div>
-      <div class="hud-fuel">JETPACK<div class="bar"><div class="fill"></div></div></div>
-      <div class="hud-start">
-        <h1>LOW-G</h1>
-        <div class="prompt">CLICK TO PLAY</div>
-        <table>${CONTROLS.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>
       </div>`;
-    document.body.appendChild(root);
+    document.body.appendChild(this.root);
 
-    this.start = root.querySelector('.hud-start')!;
-    this.fuel = root.querySelector('.hud-fuel')!;
-    this.fuelFill = root.querySelector('.fill')!;
-    this.toast = root.querySelector('.hud-toast')!;
-    this.debug = root.querySelector('.hud-debug')!;
-    this.crosshair = root.querySelector('.hud-crosshair')!;
-    this.crosshairArms = {
-      l: this.crosshair.querySelector('.l')!,
-      r: this.crosshair.querySelector('.r')!,
-      t: this.crosshair.querySelector('.t')!,
-      b: this.crosshair.querySelector('.b')!,
-    };
-    this.ammoCount = root.querySelector('.hud-ammo .count')!;
-    this.ammoMax = root.querySelector('.hud-ammo .max')!;
-    this.ammoStatus = root.querySelector('.hud-ammo .status')!;
-    this.reloadBar = root.querySelector('.hud-ammo .bar div')!;
-    this.start.addEventListener('click', onStartClick);
+    const q = (selector: string) => this.root.querySelector<HTMLElement>(selector)!;
+    this.fuel = q('.hud-fuel');
+    this.fuelFill = q('.hud-fuel .fill');
+    this.toast = q('.hud-toast');
+    this.debug = q('.hud-debug');
+    this.crosshair = q('.hud-crosshair');
+    this.crosshairArms = { l: q('.hud-crosshair .l'), r: q('.hud-crosshair .r'), t: q('.hud-crosshair .t'), b: q('.hud-crosshair .b') };
+    this.hitmarker = q('.hud-hitmarker');
+    this.popups = q('.hud-popups');
+    this.ammoCount = q('.hud-ammo .count');
+    this.ammoMax = q('.hud-ammo .max');
+    this.ammoStatus = q('.hud-ammo .status');
+    this.reloadBar = q('.hud-ammo .bar div');
+    this.scorePoints = q('.hud-score .points');
+    this.scoreCombo = q('.hud-score .combo');
+    this.scoreAccuracy = q('.hud-score .accuracy');
+    this.timer = q('.hud-timer');
+
+    // The hit marker is an X: four short lines angled out from the center.
+    this.hitmarker.querySelectorAll('div').forEach((line, i) => {
+      const angle = 45 + i * 90;
+      line.style.transform = `rotate(${angle}deg) translateX(14px)`;
+    });
   }
 
-  setPaused(paused: boolean) {
-    this.start.style.display = paused ? 'flex' : 'none';
+  setVisible(visible: boolean) {
+    this.root.style.display = visible ? 'block' : 'none';
   }
 
   showToast(text: string) {
     this.toast.textContent = text;
     this.toast.style.opacity = '1';
     window.clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => (this.toast.style.opacity = '0'), 1200);
+    this.toastTimer = window.setTimeout(() => (this.toast.style.opacity = '0'), 1500);
   }
 
-  // spreadDegrees and fov decide how far apart the crosshair arms sit, so the gap
-  // on screen matches where shots can actually land.
-  update(player: Player, rifle: Rifle, spreadDegrees: number, fov: number, magazineSize: number) {
+  /** Flash the X around the crosshair and float the points above it. */
+  showHit(earned: number, label: string, bullseye: boolean, multiplier: number) {
+    this.hitmarkerTime = 0.18;
+    this.hitmarker.classList.toggle('bullseye', bullseye);
+
+    const popup = document.createElement('div');
+    popup.className = bullseye ? 'hud-popup bullseye' : 'hud-popup';
+    popup.textContent = `+${earned} ${label}${multiplier > 1 ? ` x${multiplier}` : ''}`;
+    // Nudge sideways a little so rapid hits don't stack exactly on top of each other.
+    popup.style.left = `${(Math.random() - 0.5) * 40}px`;
+    this.popups.appendChild(popup);
+    window.setTimeout(() => popup.remove(), 900);
+  }
+
+  /** timeLeft is null when there's no timer (free practice). */
+  update(
+    dt: number,
+    player: Player,
+    rifle: Rifle,
+    scoring: Scoring,
+    timeLeft: number | null,
+    spreadDegrees: number,
+    fov: number,
+    magazineSize: number,
+  ) {
+    // Crosshair: the gap matches where shots can actually land.
     const halfScreen = window.innerHeight / 2;
     const gap =
       3 + (Math.tan(THREE.MathUtils.degToRad(spreadDegrees)) / Math.tan(THREE.MathUtils.degToRad(fov / 2))) * halfScreen;
@@ -135,8 +171,12 @@ export class Hud {
     t.style.top = `${-gap - 10}px`;
     b.style.top = `${gap}px`;
     // Aiming down sights uses the gun's own sight dot instead.
-    this.crosshair.style.opacity = String(1 - rifle.aimBlend * 1.5);
+    this.crosshair.style.opacity = String(Math.max(0, 1 - rifle.aimBlend * 1.5));
 
+    this.hitmarkerTime = Math.max(0, this.hitmarkerTime - dt);
+    this.hitmarker.style.opacity = String(Math.min(1, this.hitmarkerTime / 0.08));
+
+    // Ammo
     this.ammoCount.textContent = String(rifle.ammo);
     this.ammoMax.textContent = ` / ${magazineSize}`;
     this.ammoCount.classList.toggle('empty', rifle.ammo === 0);
@@ -144,9 +184,24 @@ export class Hud {
     this.ammoStatus.textContent = rifle.reloading ? 'RELOADING' : rifle.ammo === 0 ? 'PRESS R' : '';
     this.reloadBar.style.width = rifle.reloading ? `${(rifle.reloadProgress * 100).toFixed(0)}%` : '0';
 
+    // Jetpack
     const fraction = player.jetpack.fraction;
     this.fuelFill.style.width = `${(fraction * 100).toFixed(1)}%`;
     this.fuel.classList.toggle('empty', fraction < 0.2);
+
+    // Score
+    this.scorePoints.textContent = scoring.score.toLocaleString('en-US');
+    this.scoreCombo.textContent = scoring.combo > 1 ? `COMBO ${scoring.combo}  x${scoring.multiplier}` : '';
+    const accuracy = scoring.accuracy;
+    this.scoreAccuracy.textContent = `ACCURACY ${accuracy === null ? '-' : `${accuracy.toFixed(0)}%`}`;
+
+    // Timer (time trial only)
+    this.timer.style.display = timeLeft === null ? 'none' : 'block';
+    if (timeLeft !== null) {
+      const seconds = Math.ceil(timeLeft);
+      this.timer.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+      this.timer.classList.toggle('urgent', timeLeft <= 10);
+    }
 
     const feet = player.feet;
     this.debug.textContent =

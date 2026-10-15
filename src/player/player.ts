@@ -51,6 +51,14 @@ export class Player {
     this.controller.enableSnapToGround(cfg.snapToGround);
   }
 
+  /** Moves the player straight to a spot (feet position), standing still. */
+  teleport(x: number, y: number, z: number) {
+    this.center.set(x, y + this.height / 2, z);
+    this.body.setTranslation(this.center, true);
+    this.velocity.set(0, 0, 0);
+    this.grounded = false;
+  }
+
   get height() {
     return this.crouched ? CONFIG.player.crouchHeight : CONFIG.player.standHeight;
   }

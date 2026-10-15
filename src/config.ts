@@ -122,6 +122,40 @@ export const CONFIG = {
     sparkLife: 0.25,
   },
 
+  targets: {
+    discRadius: 0.6, // meters
+    discThickness: 0.06,
+    // Ring edges as a fraction of the disc radius, and what each ring is worth.
+    bullseyeRadius: 0.2,
+    innerRadius: 0.58,
+    bullseyePoints: 50,
+    innerPoints: 25,
+    outerPoints: 10,
+    respawnTime: 2.5, // seconds before a broken static target comes back
+
+    popupMultiplier: 2, // pop-ups are worth double: they don't stay up long
+    popupUpTime: 3, // seconds a pop-up stays standing
+    popupFlipTime: 0.25, // seconds to rise or drop
+    popupInterval: [1.0, 2.2], // random gap between pop-ups rising (min, max seconds)
+
+    dronePoints: 75,
+    droneRadius: 0.45,
+    droneRespawnTime: 4,
+  },
+
+  debris: {
+    life: 6, // seconds before broken pieces disappear
+    burstSpeed: 1.4, // m/s outward from the center of the target
+    shotPush: 1.2, // m/s knocked off the target (off the face for discs, along the shot for drones)
+    spin: 4, // max radians per second of tumble
+  },
+
+  scoring: {
+    comboStep: 5, // the multiplier goes up by one every this many hits in a row
+    maxMultiplier: 4,
+    timeTrialSeconds: 60,
+  },
+
   floor: {
     size: 100, // width and depth of the test floor (meters)
     color: 0x7a7a7a,
