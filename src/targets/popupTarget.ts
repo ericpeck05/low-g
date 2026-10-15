@@ -11,6 +11,7 @@ type State = 'down' | 'rising' | 'up' | 'falling';
 // for a few seconds, then drops. Worth more points because it's only up briefly.
 export class PopupTarget implements Target {
   readonly collider: RAPIER.Collider;
+  readonly position: THREE.Vector3; // where its base sits
   state: State = 'down';
 
   private hinge = new THREE.Group(); // tips the disc up and down
@@ -26,6 +27,7 @@ export class PopupTarget implements Target {
     facing: THREE.Vector3,
   ) {
     const { discRadius, discThickness } = CONFIG.targets;
+    this.position = base.clone();
 
     // The base plate the target folds down onto.
     const plate = new THREE.Mesh(

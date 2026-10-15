@@ -3,6 +3,7 @@ import { playHitSound, unlockAudio } from './audio/sfx';
 import { CONFIG } from './config';
 import { Input } from './core/input';
 import { createPhysicsWorld } from './core/physics';
+import { createComposer } from './core/postprocessing';
 import { createScene } from './core/scene';
 import { Session } from './core/session';
 import { CameraEffects } from './player/cameraEffects';
@@ -11,7 +12,7 @@ import { Look } from './player/look';
 import { Player } from './player/player';
 import { Scoring } from './targets/scoring';
 import { TargetManager } from './targets/targetManager';
-import { placeTestLevelTargets } from './targets/testLevelTargets';
+import { placeCityTargets } from './targets/cityTargets';
 import { Hud } from './ui/hud';
 import { Menu, type Mode } from './ui/menu';
 import { applySpread, castShot } from './weapons/hitscan';
@@ -23,14 +24,14 @@ import { Sun } from './world/lighting';
 import { scatterRocks } from './world/rocks';
 import { Sky } from './world/sky';
 import { buildTerrain } from './world/terrain';
-import { buildTestLevel } from './world/testLevel';
+import { buildCity } from './world/city';
 
 async function boot() {
   const world = await createPhysicsWorld();
   const { renderer, scene, camera } = createScene();
   buildTerrain(scene, world);
   scatterRocks(scene, world);
-  buildTestLevel(scene, world);
+  const city = buildCity(scene, world);
   const sun = new Sun(scene);
   const sky = new Sky(scene);
 
@@ -44,7 +45,8 @@ async function boot() {
   const impacts = new ImpactEffects(scene);
   const footsteps = new Footsteps(scene, impacts);
   const targets = new TargetManager(scene, world);
-  placeTestLevelTargets(targets);
+  placeCityTargets(targets);
+  const composer = createComposer(renderer, scene, camera);
   const scoring = new Scoring();
   const session = new Session();
   const hud = new Hud();
@@ -111,7 +113,9 @@ async function boot() {
 
       player.update(dt, input, look.yaw, rifle.aiming);
       footsteps.update(dt, player, look.yaw);
-      targets.update(dt); // moves target colliders, so it goes before the physics step
+      // These move colliders (targets, airlock doors), so they go before the physics step.
+      targets.update(dt, player.feet);
+      city.update(dt, player.feet);
       world.timestep = dt;
       world.step();
       recoil.update(dt);
@@ -142,9 +146,8 @@ async function boot() {
     impacts.update(playing ? dt : 0, camera);
     hud.update(dt, player, rifle, scoring, session.timeLeft, spread, camera.fov, CONFIG.rifle.magazineSize);
 
-    // Draw the world, then the gun on top of it.
-    renderer.clear();
-    renderer.render(scene, camera);
+    // Draw the world (with bloom), then the gun on top of it.
+    composer.render(dt);
     renderer.clearDepth();
     renderer.render(viewmodel.scene, viewmodel.camera);
     input.endFrame();
@@ -186,7 +189,7 @@ async function boot() {
   // lowg.tick(1 / 60) advances one frame by hand, which is handy for testing.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      lowg: { input, look, player, camera, world, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, tick, startRun },
+      lowg: { input, look, player, camera, world, city, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, tick, startRun },
     });
   }
 }

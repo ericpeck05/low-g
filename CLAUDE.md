@@ -203,3 +203,4 @@ Goal: movement feels great before anything else is added. Test level is a flat g
 
 - Map layout: one big dome for v1. Several domes connected by tunnels can come later.
 - Crouch is C only. Ctrl was dropped because browsers don't let a page block Ctrl+W, so crouch-walking forward could close the tab.
+- Phase 5 replaced the Phase 1 movement sandbox with the city. Its moves (ramps, steps, crouching, jetpack-only ledges) now live in the city: ramps up to the walkways, rooftops you reach by jetpack.

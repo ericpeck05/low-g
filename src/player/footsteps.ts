@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import type { ImpactEffects } from '../weapons/impactEffects';
+import { isInsideDome } from '../world/city/dome';
 import { terrainHeight, terrainNormal } from '../world/terrain';
 import type { Player } from './player';
 
@@ -39,7 +40,8 @@ export class Footsteps {
 
   update(dt: number, player: Player, yaw: number) {
     const feet = player.feet;
-    const onDust = Math.abs(feet.y - terrainHeight(feet.x, feet.z)) < 0.15;
+    // Only the bare lunar surface takes prints: not the paved city, not rooftops.
+    const onDust = !isInsideDome(feet) && Math.abs(feet.y - terrainHeight(feet.x, feet.z)) < 0.15;
 
     if (player.landingSpeed > 1 && onDust) {
       // Both feet hit at once.

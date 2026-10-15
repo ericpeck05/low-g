@@ -24,7 +24,7 @@ export const CONFIG = {
   },
 
   player: {
-    startPosition: { x: 0, y: 2, z: 12 },
+    startPosition: { x: 0, y: 0.5, z: 26 }, // in the plaza, facing the beacon
     radius: 0.35, // capsule radius (meters)
     standHeight: 1.8, // total body height standing
     crouchHeight: 1.1, // total body height crouched
@@ -137,6 +137,7 @@ export const CONFIG = {
     popupUpTime: 3, // seconds a pop-up stays standing
     popupFlipTime: 0.25, // seconds to rise or drop
     popupInterval: [1.0, 2.2], // random gap between pop-ups rising (min, max seconds)
+    popupRange: 70, // only pop-ups within this many meters of the player rise
 
     dronePoints: 75,
     droneRadius: 0.45,
@@ -160,8 +161,8 @@ export const CONFIG = {
     seed: 7, // change for a different (but repeatable) landscape
     size: 1000, // meters across
     resolution: 500, // grid cells per side (2 m each)
-    flatRadius: 60, // the flat area in the middle, where the city will go
-    blendRadius: 95, // terrain fades from flat to full height out to here
+    flatRadius: 150, // the flat area in the middle: the dome and the buildings around it
+    blendRadius: 210, // terrain fades from flat to full height out to here
     hillHeight: 7, // meters of rolling hills
     hillScale: 140, // meters between hill tops, roughly
     craterCount: 70,
@@ -170,6 +171,21 @@ export const CONFIG = {
     edgeHillHeight: 45, // a ring of tall hills at the map edge that hides the end of the world
     edgeHillWidth: 140,
     textureMeters: 6, // the ground texture repeats every this many meters
+  },
+
+  city: {
+    domeRadius: 90, // meters, at ground level
+    domeHeight: 50, // meters at the very top
+    walkwayHeight: 8, // the ring of bridges between towers
+    airlockBearings: [180, 0], // degrees: north (toward the Earth) and south (toward the landing pad)
+    airlockDoorSpeed: 2.5, // m/s the doors slide
+    airlockCycleTime: 1.2, // seconds to "pressurize" between closing one door and opening the other
+  },
+
+  bloom: {
+    strength: 0.35, // how much glowing things bleed light
+    radius: 0.3,
+    threshold: 1.0, // only things brighter than this glow (lit windows, light strips), not sunlit ground
   },
 
   sky: {

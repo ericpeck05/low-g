@@ -37,13 +37,16 @@ export class TargetManager {
     this.add(new DroneTarget(this.scene, this.world, this.debris, anchor, reach, speed));
   }
 
-  update(dt: number) {
-    // Every so often, raise a random pop-up that's lying down.
+  update(dt: number, player: THREE.Vector3) {
+    // Every so often, raise a random pop-up that's lying down near the player.
+    // (There's no point raising one on the far side of the map.)
     this.nextPopup -= dt;
     if (this.nextPopup <= 0) {
       const [min, max] = CONFIG.targets.popupInterval;
       this.nextPopup = min + Math.random() * (max - min);
-      const waiting = this.popups.filter((p) => p.state === 'down');
+      const waiting = this.popups.filter(
+        (p) => p.state === 'down' && p.position.distanceTo(player) < CONFIG.targets.popupRange,
+      );
       if (waiting.length > 0) waiting[Math.floor(Math.random() * waiting.length)].raise();
     }
 
