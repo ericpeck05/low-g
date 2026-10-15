@@ -7,6 +7,8 @@ export function createScene() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
+  // We clear the screen ourselves, because the gun is drawn in a second pass on top.
+  renderer.autoClear = false;
   document.body.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();

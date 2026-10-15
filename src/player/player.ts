@@ -22,7 +22,8 @@ export class Player {
 
   private center = new THREE.Vector3(); // capsule center
   private body: RAPIER.RigidBody;
-  private collider: RAPIER.Collider;
+  /** Public so shots can ignore the player's own body. */
+  readonly collider: RAPIER.Collider;
   private controller: RAPIER.KinematicCharacterController;
   private airTime = 0;
 
@@ -63,7 +64,8 @@ export class Player {
     return Math.hypot(this.velocity.x, this.velocity.z);
   }
 
-  update(dt: number, input: Input, yaw: number) {
+  // aiming: true while aiming down sights, which slows you and stops sprinting.
+  update(dt: number, input: Input, yaw: number, aiming = false) {
     const cfg = CONFIG.player;
     const wasGrounded = this.grounded;
 
@@ -79,8 +81,9 @@ export class Player {
     if (input.isDown('KeyA')) wish.sub(right);
     if (wish.lengthSq() > 0) wish.normalize();
 
-    const sprinting = input.isDown('ShiftLeft', 'ShiftRight') && !this.crouched;
-    const speed = this.crouched ? cfg.crouchWalkSpeed : sprinting ? cfg.sprintSpeed : cfg.walkSpeed;
+    const sprinting = input.isDown('ShiftLeft', 'ShiftRight') && !this.crouched && !aiming;
+    let speed = this.crouched ? cfg.crouchWalkSpeed : sprinting ? cfg.sprintSpeed : cfg.walkSpeed;
+    if (aiming) speed *= CONFIG.rifle.adsMoveScale;
 
     // Ease horizontal velocity toward the target. In the air you only steer
     // a little, and with no keys held you keep your momentum.

@@ -8,9 +8,10 @@ export class Look {
   pitch = 0;
   sensitivity = CONFIG.look.sensitivity;
 
-  update(mouse: { x: number; y: number }) {
-    this.yaw -= mouse.x * this.sensitivity;
-    this.pitch -= mouse.y * this.sensitivity;
+  // zoomScale slows the mouse while aiming down sights, so zoomed aim feels the same.
+  update(mouse: { x: number; y: number }, zoomScale = 1) {
+    this.yaw -= mouse.x * this.sensitivity * zoomScale;
+    this.pitch -= mouse.y * this.sensitivity * zoomScale;
     const limit = THREE.MathUtils.degToRad(CONFIG.look.maxPitch);
     this.pitch = THREE.MathUtils.clamp(this.pitch, -limit, limit);
   }
@@ -24,9 +25,11 @@ export class Look {
     );
   }
 
-  applyTo(camera: THREE.Camera) {
+  // Extra pitch and yaw (from recoil) are added on top without changing where you aim long-term.
+  applyTo(camera: THREE.Camera, extraPitch = 0, extraYaw = 0) {
     // 'YXZ' turns left/right first, then tilts. This stops the view from rolling.
     camera.rotation.order = 'YXZ';
-    camera.rotation.set(this.pitch, this.yaw, 0);
+    const limit = THREE.MathUtils.degToRad(CONFIG.look.maxPitch);
+    camera.rotation.set(THREE.MathUtils.clamp(this.pitch + extraPitch, -limit, limit), this.yaw + extraYaw, 0);
   }
 }

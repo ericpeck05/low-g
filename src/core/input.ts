@@ -25,6 +25,16 @@ export class Input {
       if (!this.locked) this.held.clear();
     });
 
+    // Mouse buttons are stored like keys: 'Mouse0' is left click, 'Mouse2' is right click.
+    document.addEventListener('mousedown', (e) => {
+      if (!this.locked) return;
+      this.held.add(`Mouse${e.button}`);
+      this.pressedThisFrame.add(`Mouse${e.button}`);
+    });
+    document.addEventListener('mouseup', (e) => this.held.delete(`Mouse${e.button}`));
+    // Right click is for aiming, so don't open the browser's menu.
+    document.addEventListener('contextmenu', (e) => e.preventDefault());
+
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
       this.mouseDX += e.movementX;

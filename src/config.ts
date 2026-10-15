@@ -72,6 +72,56 @@ export const CONFIG = {
     landingRecover: 7, // how quickly the dip springs back
   },
 
+  rifle: {
+    magazineSize: 30,
+    fireRate: 9, // shots per second while holding the trigger (full auto)
+    reloadTime: 1.6, // seconds
+    range: 400, // meters: how far a shot can hit something
+
+    // Spread: how far shots wander from the crosshair, in degrees.
+    hipSpread: 1.2,
+    adsSpread: 0.1,
+    moveSpread: 1.5, // added at full sprint speed, less when walking
+    airSpread: 2.0, // added while airborne
+    spreadPerShot: 0.35, // grows while you hold the trigger
+    spreadRecovery: 4, // degrees per second it shrinks back
+
+    // Aim down sights (right click)
+    adsFov: 45, // degrees: zoomed field of view
+    adsSpeed: 10, // how fast you raise and lower the sights
+    adsMoveScale: 0.6, // walk slower while aiming
+  },
+
+  recoil: {
+    kickPitch: 0.55, // degrees the view jumps up per shot
+    kickYaw: 0.2, // max degrees of random sideways kick per shot
+    adsScale: 0.55, // recoil multiplier while aiming down sights
+    recovery: 7, // how quickly the view settles back after shooting
+    shakeAmount: 0.006, // radians of random screen shake per shot
+    shakeDecay: 18, // how quickly the shake dies out
+  },
+
+  viewmodel: {
+    fov: 60, // the gun is drawn with its own fixed camera so it never stretches
+    hipPosition: { x: 0.2, y: -0.2, z: -0.48 }, // bottom right of the screen
+    kickBack: 0.05, // meters the gun slides back per shot
+    kickUp: 4, // degrees the gun tilts up per shot
+    kickRecovery: 14,
+    swayAmount: 0.0006, // how much the gun lags behind mouse movement
+    muzzleFlashTime: 0.05, // seconds the flash stays visible
+  },
+
+  impacts: {
+    dustCount: 26, // particles per hit
+    dustSpeed: 1.6, // m/s: how hard the dust is thrown off the surface
+    dustLift: 1.2, // m/s of extra upward toss, which sets how long the puff hangs
+    dustLife: 5, // seconds before a dust particle fades away
+    dustSize: 0.09, // meters
+    sparkCount: 8,
+    sparkSpeed: 6,
+    sparkLife: 0.25,
+  },
+
   floor: {
     size: 100, // width and depth of the test floor (meters)
     color: 0x7a7a7a,

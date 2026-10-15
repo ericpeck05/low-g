@@ -1,4 +1,6 @@
+import * as THREE from 'three';
 import type { Player } from '../player/player';
+import type { Rifle } from '../weapons/rifle';
 
 // The on-screen overlay: start/pause screen, jetpack fuel bar,
 // a sensitivity readout, and a small debug panel for tuning movement.
@@ -22,13 +24,27 @@ const STYLE = `
   .hud-toast { position: absolute; left: 50%; top: 40%; transform: translateX(-50%);
                transition: opacity 0.3s; opacity: 0; }
   .hud-debug { position: absolute; left: 16px; top: 16px; white-space: pre; color: #bdb6aa; }
-  .hud-crosshair { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px;
-                   margin: -2px 0 0 -2px; background: #f5f0e8; }
+  .hud-crosshair { position: absolute; left: 50%; top: 50%; transition: opacity 0.1s; }
+  .hud-crosshair div { position: absolute; background: #f5f0e8; box-shadow: 0 0 2px #000; }
+  .hud-crosshair .h { width: 10px; height: 2px; margin-top: -1px; }
+  .hud-crosshair .v { width: 2px; height: 10px; margin-left: -1px; }
+  .hud-crosshair .dot { width: 2px; height: 2px; margin: -1px 0 0 -1px; }
+  .hud-ammo { position: absolute; right: 40px; bottom: 36px; text-align: right; }
+  .hud-ammo .count { font-size: 40px; line-height: 1; }
+  .hud-ammo .count.low { color: #ffa31a; }
+  .hud-ammo .count.empty { color: #ff5a1f; }
+  .hud-ammo .max { color: #8a8379; font-size: 16px; }
+  .hud-ammo .status { height: 16px; margin-top: 6px; color: #ffa31a; }
+  .hud-ammo .bar { height: 3px; width: 120px; margin-left: auto; margin-top: 4px; background: #333; }
+  .hud-ammo .bar div { height: 100%; width: 0; background: #ffa31a; }
 `;
 
 const CONTROLS: [string, string][] = [
   ['W A S D', 'move'],
   ['MOUSE', 'look'],
+  ['LEFT CLICK', 'shoot'],
+  ['RIGHT CLICK', 'aim down sights'],
+  ['R', 'reload'],
   ['SPACE', 'jump'],
   ['HOLD SPACE', 'jetpack (in the air)'],
   ['SHIFT', 'sprint'],
@@ -43,6 +59,12 @@ export class Hud {
   private fuelFill: HTMLElement;
   private toast: HTMLElement;
   private debug: HTMLElement;
+  private crosshair: HTMLElement;
+  private crosshairArms: { l: HTMLElement; r: HTMLElement; t: HTMLElement; b: HTMLElement };
+  private ammoCount: HTMLElement;
+  private ammoMax: HTMLElement;
+  private ammoStatus: HTMLElement;
+  private reloadBar: HTMLElement;
   private toastTimer = 0;
 
   constructor(onStartClick: () => void) {
@@ -53,7 +75,14 @@ export class Hud {
     const root = document.createElement('div');
     root.className = 'hud';
     root.innerHTML = `
-      <div class="hud-crosshair"></div>
+      <div class="hud-crosshair">
+        <div class="dot"></div><div class="h l"></div><div class="h r"></div>
+        <div class="v t"></div><div class="v b"></div>
+      </div>
+      <div class="hud-ammo">
+        <span class="count">30</span><span class="max"> / 30</span>
+        <div class="status"></div><div class="bar"><div></div></div>
+      </div>
       <div class="hud-debug"></div>
       <div class="hud-toast"></div>
       <div class="hud-fuel">JETPACK<div class="bar"><div class="fill"></div></div></div>
@@ -69,6 +98,17 @@ export class Hud {
     this.fuelFill = root.querySelector('.fill')!;
     this.toast = root.querySelector('.hud-toast')!;
     this.debug = root.querySelector('.hud-debug')!;
+    this.crosshair = root.querySelector('.hud-crosshair')!;
+    this.crosshairArms = {
+      l: this.crosshair.querySelector('.l')!,
+      r: this.crosshair.querySelector('.r')!,
+      t: this.crosshair.querySelector('.t')!,
+      b: this.crosshair.querySelector('.b')!,
+    };
+    this.ammoCount = root.querySelector('.hud-ammo .count')!;
+    this.ammoMax = root.querySelector('.hud-ammo .max')!;
+    this.ammoStatus = root.querySelector('.hud-ammo .status')!;
+    this.reloadBar = root.querySelector('.hud-ammo .bar div')!;
     this.start.addEventListener('click', onStartClick);
   }
 
@@ -83,7 +123,27 @@ export class Hud {
     this.toastTimer = window.setTimeout(() => (this.toast.style.opacity = '0'), 1200);
   }
 
-  update(player: Player) {
+  // spreadDegrees and fov decide how far apart the crosshair arms sit, so the gap
+  // on screen matches where shots can actually land.
+  update(player: Player, rifle: Rifle, spreadDegrees: number, fov: number, magazineSize: number) {
+    const halfScreen = window.innerHeight / 2;
+    const gap =
+      3 + (Math.tan(THREE.MathUtils.degToRad(spreadDegrees)) / Math.tan(THREE.MathUtils.degToRad(fov / 2))) * halfScreen;
+    const { l, r, t, b } = this.crosshairArms;
+    l.style.left = `${-gap - 10}px`;
+    r.style.left = `${gap}px`;
+    t.style.top = `${-gap - 10}px`;
+    b.style.top = `${gap}px`;
+    // Aiming down sights uses the gun's own sight dot instead.
+    this.crosshair.style.opacity = String(1 - rifle.aimBlend * 1.5);
+
+    this.ammoCount.textContent = String(rifle.ammo);
+    this.ammoMax.textContent = ` / ${magazineSize}`;
+    this.ammoCount.classList.toggle('empty', rifle.ammo === 0);
+    this.ammoCount.classList.toggle('low', rifle.ammo > 0 && rifle.ammo <= magazineSize / 4);
+    this.ammoStatus.textContent = rifle.reloading ? 'RELOADING' : rifle.ammo === 0 ? 'PRESS R' : '';
+    this.reloadBar.style.width = rifle.reloading ? `${(rifle.reloadProgress * 100).toFixed(0)}%` : '0';
+
     const fraction = player.jetpack.fraction;
     this.fuelFill.style.width = `${(fraction * 100).toFixed(1)}%`;
     this.fuel.classList.toggle('empty', fraction < 0.2);
