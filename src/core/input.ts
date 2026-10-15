@@ -13,8 +13,8 @@ export class Input {
       if (!this.locked) return;
       if (!e.repeat) this.pressedThisFrame.add(e.code);
       this.held.add(e.code);
-      // Stop the browser from scrolling or doing shortcuts with game keys.
-      if (e.code === 'Space' || e.code.startsWith('Control')) e.preventDefault();
+      // Stop Space from scrolling the page.
+      if (e.code === 'Space') e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.held.delete(e.code));
 

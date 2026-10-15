@@ -32,7 +32,7 @@ const CONTROLS: [string, string][] = [
   ['SPACE', 'jump'],
   ['HOLD SPACE', 'jetpack (in the air)'],
   ['SHIFT', 'sprint'],
-  ['C / CTRL', 'crouch'],
+  ['C', 'crouch'],
   ['[  ]', 'mouse sensitivity'],
   ['ESC', 'release mouse'],
 ];

@@ -67,7 +67,7 @@ export class Player {
     const cfg = CONFIG.player;
     const wasGrounded = this.grounded;
 
-    this.updateCrouch(input.isDown('KeyC', 'ControlLeft', 'ControlRight'));
+    this.updateCrouch(input.isDown('KeyC'));
 
     // Which way the keys are pushing, turned to match where the camera faces.
     const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));

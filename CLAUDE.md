@@ -53,7 +53,7 @@ lunar-fps/
 | Jump | Space |
 | Jetpack boost | Hold Space while in the air |
 | Sprint | Shift |
-| Crouch | C or Ctrl |
+| Crouch | C |
 | Reload | R |
 | Pause | Esc |
 
@@ -202,3 +202,4 @@ Goal: movement feels great before anything else is added. Test level is a flat g
 ## Decisions made
 
 - Map layout: one big dome for v1. Several domes connected by tunnels can come later.
+- Crouch is C only. Ctrl was dropped because browsers don't let a page block Ctrl+W, so crouch-walking forward could close the tab.
