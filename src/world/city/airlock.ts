@@ -69,6 +69,8 @@ class Door {
 // Only one door is ever open, so the city keeps its air:
 // step into the chamber, the door behind you closes, it pressurizes, the far door opens.
 export class Airlock {
+  /** When locked, both doors stay shut (used to keep you outside in the oxygen run). */
+  locked = false;
   private inner: Door;
   private outer: Door;
   private radial: THREE.Vector3; // points out of the dome
@@ -144,7 +146,10 @@ export class Airlock {
     const nearInside = inPassage && u > this.inner.u - 8 && u <= this.inner.u;
     const nearOutside = inPassage && u >= this.outer.u && u < this.outer.u + 8;
 
-    if (inChamber) {
+    if (this.locked) {
+      this.inner.target = 0;
+      this.outer.target = 0;
+    } else if (inChamber) {
       this.enteredFrom ??= this.lastSide;
       const behind = this.enteredFrom === 'inside' ? this.inner : this.outer;
       const ahead = this.enteredFrom === 'inside' ? this.outer : this.inner;
@@ -175,7 +180,7 @@ export class Airlock {
     // Lamps: white when that door is open, amber otherwise. The chamber strip pulses while cycling.
     this.lamps.forEach((lamp, i) => {
       const door = i < 2 ? this.inner : this.outer;
-      lamp.material = door.fullyOpen ? MATERIALS.whiteLight : MATERIALS.amberLight;
+      lamp.material = this.locked ? MATERIALS.orangeLight : door.fullyOpen ? MATERIALS.whiteLight : MATERIALS.amberLight;
     });
     const cycling = inChamber && this.cycleTimer > 0 && this.cycleTimer < CONFIG.city.airlockCycleTime;
     (this.cycleStrip.material as THREE.MeshStandardMaterial).emissiveIntensity = cycling

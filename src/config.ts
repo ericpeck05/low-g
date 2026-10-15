@@ -151,10 +151,26 @@ export const CONFIG = {
     spin: 4, // max radians per second of tumble
   },
 
+  oxygen: {
+    max: 100,
+    drainRate: 1.8, // per second on the surface (about 55 s from full)
+    refillRate: 30, // per second inside the dome or an airlock chamber
+    lowWarning: 25, // below this the HUD warns you
+    // Top-ups for hitting targets while you're outside.
+    hitReward: 5,
+    bullseyeReward: 12,
+    droneReward: 9,
+    // Oxygen Run gets harder: the drain grows by this fraction every minute survived.
+    runDrainGrowthPerMinute: 0.6,
+  },
+
   scoring: {
     comboStep: 5, // the multiplier goes up by one every this many hits in a row
     maxMultiplier: 4,
     timeTrialSeconds: 60,
+    // Where each mode starts (feet position) and which way you face (degrees, 180 = toward -z).
+    rangeStart: { x: 0, y: 0.5, z: 26, bearing: 180 },
+    oxygenRunStart: { x: 0, y: 0.8, z: 140, bearing: 180 }, // on the landing pad, facing the dome
   },
 
   terrain: {

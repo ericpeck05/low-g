@@ -5,16 +5,19 @@ import { Input } from './core/input';
 import { createPhysicsWorld } from './core/physics';
 import { createComposer } from './core/postprocessing';
 import { createScene } from './core/scene';
-import { Session } from './core/session';
+import { submitHighScore } from './core/highScores';
+import { Session, type Mode } from './core/session';
 import { CameraEffects } from './player/cameraEffects';
 import { Footsteps } from './player/footsteps';
+import { Oxygen } from './player/oxygen';
 import { Look } from './player/look';
 import { Player } from './player/player';
 import { Scoring } from './targets/scoring';
 import { TargetManager } from './targets/targetManager';
 import { placeCityTargets } from './targets/cityTargets';
 import { Hud } from './ui/hud';
-import { Menu, type Mode } from './ui/menu';
+import { Menu } from './ui/menu';
+import type { HitResult } from './targets/target';
 import { applySpread, castShot } from './weapons/hitscan';
 import { ImpactEffects } from './weapons/impactEffects';
 import { Recoil } from './weapons/recoil';
@@ -25,6 +28,7 @@ import { scatterRocks } from './world/rocks';
 import { Sky } from './world/sky';
 import { buildTerrain } from './world/terrain';
 import { buildCity } from './world/city';
+import { isInsideDome } from './world/city/dome';
 
 async function boot() {
   const world = await createPhysicsWorld();
@@ -49,11 +53,15 @@ async function boot() {
   const composer = createComposer(renderer, scene, camera);
   const scoring = new Scoring();
   const session = new Session();
+  const oxygen = new Oxygen();
+  let inside = true; // breathing dome air (inside the dome or an airlock chamber)
   const hud = new Hud();
   const menu = new Menu({
     start: startRun,
     resume: () => lockMouse(),
     quitToMenu: () => {
+      // Range has no end screen, so its best score is saved when you leave it.
+      if (session.mode === 'range' && session.state === 'playing') submitHighScore('range', scoring.score);
       session.state = 'menu';
       menu.showMain();
     },
@@ -72,19 +80,26 @@ async function boot() {
     if (session.state === 'playing') menu.showPaused();
   }
 
-  // A fresh run: back to the spawn point, full magazine, all targets up, score zeroed.
+  // A fresh run: to the mode's start spot, full air and magazine, all targets up, score zeroed.
   function startRun(mode: Mode) {
     session.start(mode);
     scoring.reset();
     targets.reset();
     footsteps.clear();
     rifle.reset();
-    const start = CONFIG.player.startPosition;
-    player.teleport(start.x, start.y, start.z);
-    look.yaw = 0;
-    look.pitch = 0;
+    oxygen.reset();
+    // The oxygen run keeps you outside: the airlocks stay sealed.
+    for (const airlock of city.airlocks) airlock.locked = mode === 'oxygenRun';
+    placePlayer(mode === 'oxygenRun' ? CONFIG.scoring.oxygenRunStart : CONFIG.scoring.rangeStart);
     menu.hide();
     void lockMouse();
+  }
+
+  // bearing: the compass direction to face (180 = toward -z), same as the sky and city layout.
+  function placePlayer(spot: { x: number; y: number; z: number; bearing: number }) {
+    player.teleport(spot.x, spot.y, spot.z);
+    look.yaw = THREE.MathUtils.degToRad(spot.bearing + 180);
+    look.pitch = 0;
   }
 
   // Show the right overlay when the mouse is released (Esc) or the run ends.
@@ -120,6 +135,11 @@ async function boot() {
       world.step();
       recoil.update(dt);
 
+      // Air: the dome and the airlock chambers are pressurized; everywhere else is vacuum.
+      const feet = player.feet;
+      inside = isInsideDome(feet) || city.airlocks.some((airlock) => airlock.inChamber(feet));
+      if (oxygen.update(dt, inside, session.drainScale)) outOfOxygen();
+
       if (session.update(dt)) endRun();
     }
 
@@ -144,7 +164,8 @@ async function boot() {
 
     viewmodel.update(dt, rifle, mouse, player.horizontalSpeed, player.grounded);
     impacts.update(playing ? dt : 0, camera);
-    hud.update(dt, player, rifle, scoring, session.timeLeft, spread, camera.fov, CONFIG.rifle.magazineSize);
+    const survived = session.mode === 'oxygenRun' ? session.elapsed : null;
+    hud.update(dt, player, rifle, scoring, oxygen, inside, session.timeLeft, survived, spread, camera.fov, CONFIG.rifle.magazineSize);
 
     // Draw the world (with bloom), then the gun on top of it.
     composer.render(dt);
@@ -162,7 +183,10 @@ async function boot() {
 
     const earned = scoring.recordShot(targetHit);
     if (targetHit) {
-      hud.showHit(earned, targetHit.label, targetHit.bullseye, scoring.multiplier);
+      // Out on the surface, every hit buys a little air.
+      const bonus = inside ? 0 : oxygenReward(targetHit);
+      oxygen.reward(bonus);
+      hud.showHit(earned, targetHit.label, targetHit.bullseye, scoring.multiplier, bonus);
       playHitSound(targetHit.bullseye);
     }
 
@@ -172,8 +196,31 @@ async function boot() {
     muzzleLight.intensity = 20;
   }
 
+  function oxygenReward(hit: HitResult) {
+    const cfg = CONFIG.oxygen;
+    if (hit.label === 'DRONE') return cfg.droneReward;
+    return hit.bullseye ? cfg.bullseyeReward : cfg.hitReward;
+  }
+
+  function outOfOxygen() {
+    if (session.mode === 'range') {
+      // Practice is forgiving: you black out and wake up back in the plaza.
+      placePlayer(CONFIG.scoring.rangeStart);
+      oxygen.reset();
+      hud.showToast('OXYGEN DEPLETED: RETURNED TO THE DOME');
+      return;
+    }
+    session.end('oxygen');
+    endRun();
+  }
+
+  // Shows the results and records a high score. Time Trial and Range rank by score,
+  // the Oxygen Run by how long you survived.
   function endRun() {
-    menu.showResults(scoring);
+    const mode = session.mode;
+    const value = mode === 'oxygenRun' ? Math.floor(session.elapsed) : scoring.score;
+    const newBest = submitHighScore(mode, value);
+    menu.showResults({ mode, reason: session.endReason ?? 'timeUp', scoring, survived: session.elapsed, newBest });
     document.exitPointerLock();
   }
 
@@ -189,7 +236,7 @@ async function boot() {
   // lowg.tick(1 / 60) advances one frame by hand, which is handy for testing.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      lowg: { input, look, player, camera, world, city, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, tick, startRun },
+      lowg: { input, look, player, camera, world, city, oxygen, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, tick, startRun },
     });
   }
 }

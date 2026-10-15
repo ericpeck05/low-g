@@ -204,3 +204,4 @@ Goal: movement feels great before anything else is added. Test level is a flat g
 - Map layout: one big dome for v1. Several domes connected by tunnels can come later.
 - Crouch is C only. Ctrl was dropped because browsers don't let a page block Ctrl+W, so crouch-walking forward could close the tab.
 - Phase 5 replaced the Phase 1 movement sandbox with the city. Its moves (ramps, steps, crouching, jetpack-only ledges) now live in the city: ramps up to the walkways, rooftops you reach by jetpack.
+- Oxygen rules (phase 6): the airlock chamber counts as inside. In Range, running out sends you back to the plaza instead of ending anything. Time Trial starts in the plaza, and running out of oxygen ends it early. Oxygen Run starts on the landing pad with both airlocks locked, and the drain grows 60% per minute survived. Its high score is time survived; the other modes keep the best score (Range saves when you quit to the menu).

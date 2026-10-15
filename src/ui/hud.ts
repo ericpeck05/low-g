@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { formatTime } from '../core/highScores';
+import type { Oxygen } from '../player/oxygen';
 import type { Player } from '../player/player';
 import type { Scoring } from '../targets/scoring';
 import type { Rifle } from '../weapons/rifle';
@@ -51,6 +53,19 @@ const STYLE = `
   .hud-timer { position: absolute; left: 50%; top: 24px; transform: translateX(-50%);
                font-size: 32px; display: none; }
   .hud-timer.urgent { color: #ffa31a; }
+  .hud-oxygen { position: absolute; left: 40px; bottom: 36px; width: 220px; }
+  .hud-oxygen .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .hud-oxygen .value { font-size: 28px; }
+  .hud-oxygen .bar { height: 10px; margin-top: 6px; border: 1px solid #f5f0e8; background: rgba(0,0,0,0.5); }
+  .hud-oxygen .fill { height: 100%; background: #f5f0e8; }
+  .hud-oxygen .env { margin-top: 6px; color: #bdb6aa; font-size: 11px; }
+  .hud-oxygen.outside .env { color: #ffa31a; }
+  .hud-oxygen.low .fill { background: #ff5a1f; }
+  .hud-oxygen.low .value { color: #ff5a1f; animation: hud-blink 0.6s steps(2) infinite; }
+  @keyframes hud-blink { 50% { opacity: 0.3; } }
+  /* Edges of the view darken and warm up as the air runs out. */
+  .hud-hypoxia { position: absolute; inset: 0; opacity: 0;
+                 background: radial-gradient(ellipse at center, transparent 40%, rgba(120,30,0,0.85) 100%); }
 `;
 
 export class Hud {
@@ -71,6 +86,11 @@ export class Hud {
   private scoreCombo: HTMLElement;
   private scoreAccuracy: HTMLElement;
   private timer: HTMLElement;
+  private oxygen: HTMLElement;
+  private oxygenValue: HTMLElement;
+  private oxygenFill: HTMLElement;
+  private oxygenEnv: HTMLElement;
+  private hypoxia: HTMLElement;
   private toastTimer = 0;
   private hitmarkerTime = 0;
 
@@ -94,6 +114,12 @@ export class Hud {
       <div class="hud-score">
         <div class="label">SCORE</div><div class="points">0</div>
         <div class="combo"></div><div class="accuracy"></div>
+      </div>
+      <div class="hud-hypoxia"></div>
+      <div class="hud-oxygen">
+        <div class="row"><span>OXYGEN</span><span class="value">100</span></div>
+        <div class="bar"><div class="fill"></div></div>
+        <div class="env"></div>
       </div>
       <div class="hud-fuel">JETPACK<div class="bar"><div class="fill"></div></div></div>
       <div class="hud-ammo">
@@ -119,6 +145,11 @@ export class Hud {
     this.scoreCombo = q('.hud-score .combo');
     this.scoreAccuracy = q('.hud-score .accuracy');
     this.timer = q('.hud-timer');
+    this.oxygen = q('.hud-oxygen');
+    this.oxygenValue = q('.hud-oxygen .value');
+    this.oxygenFill = q('.hud-oxygen .fill');
+    this.oxygenEnv = q('.hud-oxygen .env');
+    this.hypoxia = q('.hud-hypoxia');
 
     // The hit marker is an X: four short lines angled out from the center.
     this.hitmarker.querySelectorAll('div').forEach((line, i) => {
@@ -138,27 +169,34 @@ export class Hud {
     this.toastTimer = window.setTimeout(() => (this.toast.style.opacity = '0'), 1500);
   }
 
-  /** Flash the X around the crosshair and float the points above it. */
-  showHit(earned: number, label: string, bullseye: boolean, multiplier: number) {
+  /** Flash the X around the crosshair and float the points (and any oxygen bonus) above it. */
+  showHit(earned: number, label: string, bullseye: boolean, multiplier: number, oxygenBonus = 0) {
     this.hitmarkerTime = 0.18;
     this.hitmarker.classList.toggle('bullseye', bullseye);
 
     const popup = document.createElement('div');
     popup.className = bullseye ? 'hud-popup bullseye' : 'hud-popup';
-    popup.textContent = `+${earned} ${label}${multiplier > 1 ? ` x${multiplier}` : ''}`;
+    popup.textContent =
+      `+${earned} ${label}${multiplier > 1 ? ` x${multiplier}` : ''}` + (oxygenBonus > 0 ? `   +${oxygenBonus} O2` : '');
     // Nudge sideways a little so rapid hits don't stack exactly on top of each other.
     popup.style.left = `${(Math.random() - 0.5) * 40}px`;
     this.popups.appendChild(popup);
     window.setTimeout(() => popup.remove(), 900);
   }
 
-  /** timeLeft is null when there's no timer (free practice). */
+  /**
+   * timeLeft: a countdown (time trial), or null. survived: a count-up (oxygen run), or null.
+   * inside: whether the player is breathing dome air.
+   */
   update(
     dt: number,
     player: Player,
     rifle: Rifle,
     scoring: Scoring,
+    oxygen: Oxygen,
+    inside: boolean,
     timeLeft: number | null,
+    survived: number | null,
     spreadDegrees: number,
     fov: number,
     magazineSize: number,
@@ -197,13 +235,23 @@ export class Hud {
     const accuracy = scoring.accuracy;
     this.scoreAccuracy.textContent = `ACCURACY ${accuracy === null ? '-' : `${accuracy.toFixed(0)}%`}`;
 
-    // Timer (time trial only)
-    this.timer.style.display = timeLeft === null ? 'none' : 'block';
+    // Timer: counts down in the time trial, up in the oxygen run.
+    this.timer.style.display = timeLeft === null && survived === null ? 'none' : 'block';
     if (timeLeft !== null) {
-      const seconds = Math.ceil(timeLeft);
-      this.timer.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+      this.timer.textContent = formatTime(Math.ceil(timeLeft));
       this.timer.classList.toggle('urgent', timeLeft <= 10);
+    } else if (survived !== null) {
+      this.timer.textContent = formatTime(survived);
+      this.timer.classList.remove('urgent');
     }
+
+    // Oxygen
+    this.oxygenValue.textContent = String(Math.ceil(oxygen.level));
+    this.oxygenFill.style.width = `${(oxygen.fraction * 100).toFixed(1)}%`;
+    this.oxygen.classList.toggle('low', oxygen.low);
+    this.oxygen.classList.toggle('outside', !inside);
+    this.oxygenEnv.textContent = inside ? 'DOME AIR: REFILLING' : 'VACUUM: SUIT SUPPLY';
+    this.hypoxia.style.opacity = oxygen.low ? String((1 - oxygen.level / 25) * 0.9) : '0';
 
     const feet = player.feet;
     this.debug.textContent =
