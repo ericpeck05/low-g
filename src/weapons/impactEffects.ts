@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
+import { terrainHeight } from '../world/terrain';
 import { ParticleSystem } from './particles';
 
 const DUST_COLOR = new THREE.Color(0.55, 0.53, 0.5); // gray regolith
@@ -19,7 +20,7 @@ export class ImpactEffects {
   spawn(point: THREE.Vector3, normal: THREE.Vector3) {
     const cfg = CONFIG.impacts;
     // Dust that lands on a flat top rests there; dust off a wall falls to the ground.
-    const floorY = normal.y > 0.7 ? point.y : 0;
+    const floorY = normal.y > 0.7 ? point.y : terrainHeight(point.x, point.z);
     const start = point.clone().addScaledVector(normal, 0.02);
 
     for (let i = 0; i < cfg.dustCount; i++) {
@@ -51,6 +52,27 @@ export class ImpactEffects {
         SPARK_COLOR,
         floorY,
         cfg.sparkLife,
+      );
+    }
+  }
+
+  /**
+   * A low puff of dust kicked up from the ground (footsteps, landings).
+   * It rises a little, hangs, and settles, with no drifting.
+   */
+  kickDust(position: THREE.Vector3, count: number, speed: number) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const out = speed * (0.3 + Math.random() * 0.7);
+      const velocity = new THREE.Vector3(Math.cos(angle) * out, speed * (0.4 + Math.random() * 0.8), Math.sin(angle) * out);
+      this.dust.spawn(
+        position,
+        velocity,
+        2 + Math.random() * 1.5,
+        CONFIG.impacts.dustSize * (0.6 + Math.random() * 0.8),
+        DUST_COLOR.clone().multiplyScalar(0.9 + Math.random() * 0.25),
+        position.y,
+        1,
       );
     }
   }

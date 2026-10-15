@@ -156,14 +156,56 @@ export const CONFIG = {
     timeTrialSeconds: 60,
   },
 
-  floor: {
-    size: 100, // width and depth of the test floor (meters)
-    color: 0x7a7a7a,
+  terrain: {
+    seed: 7, // change for a different (but repeatable) landscape
+    size: 1000, // meters across
+    resolution: 500, // grid cells per side (2 m each)
+    flatRadius: 60, // the flat area in the middle, where the city will go
+    blendRadius: 95, // terrain fades from flat to full height out to here
+    hillHeight: 7, // meters of rolling hills
+    hillScale: 140, // meters between hill tops, roughly
+    craterCount: 70,
+    craterMinRadius: 4,
+    craterMaxRadius: 45,
+    edgeHillHeight: 45, // a ring of tall hills at the map edge that hides the end of the world
+    edgeHillWidth: 140,
+    textureMeters: 6, // the ground texture repeats every this many meters
   },
 
+  sky: {
+    starCount: 4500,
+    earthDistance: 1500,
+    earthAngularSize: 7, // degrees across (the real Earth is about 2 from the Moon, made bigger for drama)
+    earthElevation: 22, // degrees above the horizon
+    earthBearing: 200, // degrees: 180 is straight ahead from the spawn point
+  },
+
+  sun: {
+    elevation: 24, // degrees above the horizon: low, so shadows are long
+    bearing: 50, // degrees around from the spawn view
+    shadowRange: 70, // meters around the player that get sharp shadows
+    shadowMapSize: 4096,
+  },
+
+  rocks: {
+    pebbles: 2600, // small rocks, no collision
+    boulders: 180, // big rocks you collide with
+    boulderMinSize: 1.2, // meters
+    boulderMaxSize: 4.5,
+  },
+
+  footsteps: {
+    strideLength: 1.1, // meters walked between footprints
+    footprintLife: 400, // how many prints stay on the ground before the oldest disappear
+    dustPerStep: 7, // dust particles kicked up per step
+    landingDust: 30,
+  },
+
+
   lighting: {
-    sunColor: 0xfff4e0, // slightly warm white
-    sunIntensity: 3,
-    ambientIntensity: 0.25, // kept low: the Moon has no air to scatter light
+    sunColor: 0xfff6ea, // very slightly warm white
+    sunIntensity: 4.5, // harsh: nothing in the way
+    ambientIntensity: 0.06, // almost none: no air to scatter light into shadows
+    earthshineIntensity: 0.12, // faint fill light reflected off the Earth
   },
 };

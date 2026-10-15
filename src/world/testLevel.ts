@@ -1,6 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { CONFIG } from '../config';
 import { addStaticBox } from '../core/physics';
 
 // Colors for the test props. Warm grays, with amber on things you need the jetpack for.
@@ -8,12 +7,10 @@ const GRAY_LIGHT = 0xa8a49e;
 const GRAY_DARK = 0x5e5b57;
 const AMBER = 0xc77a1c;
 
-// The movement sandbox: a flat floor with crates, ramps, steps, a crouch
-// tunnel and tall pillars, so every movement ability has something to test on.
+// The movement sandbox in the flat middle of the map: crates, ramps, steps, a
+// crouch tunnel and tall pillars, so every movement ability has something to test on.
+// Phase 5 replaces this with the city.
 export function buildTestLevel(scene: THREE.Scene, world: RAPIER.World) {
-  addLights(scene);
-  addFloor(scene, world);
-
   // Crates of rising height. The jump reaches about 3.2 m.
   addBox(scene, world, [-6, 0, 0], [2, 1, 2], GRAY_LIGHT);
   addBox(scene, world, [-9, 0, 0], [2, 2, 2], GRAY_LIGHT);
@@ -42,49 +39,6 @@ export function buildTestLevel(scene: THREE.Scene, world: RAPIER.World) {
   // Jetpack pillars: too tall to reach with a jump alone.
   addBox(scene, world, [12, 0, -12], [3, 6, 3], AMBER);
   addBox(scene, world, [18, 0, -14], [3, 9, 3], AMBER);
-}
-
-function addLights(scene: THREE.Scene) {
-  const sun = new THREE.DirectionalLight(CONFIG.lighting.sunColor, CONFIG.lighting.sunIntensity);
-  sun.position.set(30, 50, 20);
-  sun.castShadow = true;
-  // The shadow camera has to cover the whole test area.
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -40;
-  sun.shadow.camera.right = 40;
-  sun.shadow.camera.top = 40;
-  sun.shadow.camera.bottom = -40;
-  sun.shadow.bias = -0.0005;
-  scene.add(sun);
-
-  scene.add(new THREE.AmbientLight(0xffffff, CONFIG.lighting.ambientIntensity));
-}
-
-function addFloor(scene: THREE.Scene, world: RAPIER.World) {
-  const size = CONFIG.floor.size;
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(size, size),
-    new THREE.MeshStandardMaterial({ color: CONFIG.floor.color }),
-  );
-  floor.rotation.x = -Math.PI / 2; // planes start upright, so lay it flat
-  floor.receiveShadow = true;
-  scene.add(floor);
-
-  // A grid helps judge distance and speed until the floor gets a real texture.
-  const grid = new THREE.GridHelper(size, size, 0x555555, 0x555555);
-  grid.position.y = 0.01; // just above the floor so it doesn't flicker
-  scene.add(grid);
-
-  // The physics floor is a thick slab whose top surface sits at y = 0.
-  addStaticBox(world, { x: 0, y: -0.5, z: 0 }, { x: size / 2, y: 0.5, z: size / 2 });
-
-  // Invisible walls around the edge so you can't jetpack off the world.
-  const half = size / 2;
-  const wallHeight = 50;
-  addStaticBox(world, { x: 0, y: wallHeight / 2, z: half + 0.5 }, { x: half, y: wallHeight / 2, z: 0.5 });
-  addStaticBox(world, { x: 0, y: wallHeight / 2, z: -half - 0.5 }, { x: half, y: wallHeight / 2, z: 0.5 });
-  addStaticBox(world, { x: half + 0.5, y: wallHeight / 2, z: 0 }, { x: 0.5, y: wallHeight / 2, z: half });
-  addStaticBox(world, { x: -half - 0.5, y: wallHeight / 2, z: 0 }, { x: 0.5, y: wallHeight / 2, z: half });
 }
 
 // A box sitting on the ground. position is [x, bottom y, z], size is [width, height, depth].

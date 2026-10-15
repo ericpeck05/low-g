@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
+import { terrainHeight } from '../world/terrain';
 import { discMaterials } from './discs';
 
 interface Piece {
@@ -11,7 +12,7 @@ interface Piece {
 }
 
 const SHARD_COUNT = 10;
-const FLOOR = 0.03; // pieces come to rest just above the ground
+const REST_HEIGHT = 0.03; // pieces come to rest just above the ground
 
 // Broken target pieces. They fly apart slowly and tumble, follow moon gravity
 // with no air drag, settle on the ground, then shrink away.
@@ -83,8 +84,9 @@ export class Debris {
         p.mesh.rotation.x += p.spin.x * dt;
         p.mesh.rotation.y += p.spin.y * dt;
         p.mesh.rotation.z += p.spin.z * dt;
-        if (p.mesh.position.y < FLOOR) {
-          p.mesh.position.y = FLOOR;
+        const floor = terrainHeight(p.mesh.position.x, p.mesh.position.z) + REST_HEIGHT;
+        if (p.mesh.position.y < floor) {
+          p.mesh.position.y = floor;
           p.settled = true;
         }
       }

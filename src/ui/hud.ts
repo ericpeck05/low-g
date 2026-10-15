@@ -8,15 +8,17 @@ import type { Rifle } from '../weapons/rifle';
 const STYLE = `
   .hud { position: fixed; inset: 0; pointer-events: none; color: #f5f0e8;
          font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px;
-         letter-spacing: 0.05em; }
+         letter-spacing: 0.05em;
+         /* A dark halo keeps text readable over the bright, sunlit ground. */
+         text-shadow: 0 0 3px rgba(0,0,0,0.9), 0 0 1px #000; }
   .hud-fuel { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%);
               width: 260px; text-align: center; }
-  .hud-fuel .bar { height: 8px; margin-top: 6px; border: 1px solid #f5f0e8; }
+  .hud-fuel .bar { height: 8px; margin-top: 6px; border: 1px solid #f5f0e8; background: rgba(0,0,0,0.5); }
   .hud-fuel .fill { height: 100%; background: #ffa31a; }
   .hud-fuel.empty .fill { background: #ff5a1f; }
   .hud-toast { position: absolute; left: 50%; top: 40%; transform: translateX(-50%);
                transition: opacity 0.3s; opacity: 0; }
-  .hud-debug { position: absolute; left: 16px; top: 16px; white-space: pre; color: #8a8379; font-size: 11px; }
+  .hud-debug { position: absolute; left: 16px; top: 16px; white-space: pre; color: #bdb6aa; font-size: 11px; }
   .hud-crosshair { position: absolute; left: 50%; top: 50%; transition: opacity 0.1s; }
   .hud-crosshair div { position: absolute; background: #f5f0e8; box-shadow: 0 0 2px #000; }
   .hud-crosshair .h { width: 10px; height: 2px; margin-top: -1px; }
@@ -37,13 +39,13 @@ const STYLE = `
   .hud-ammo .count { font-size: 40px; line-height: 1; }
   .hud-ammo .count.low { color: #ffa31a; }
   .hud-ammo .count.empty { color: #ff5a1f; }
-  .hud-ammo .max { color: #8a8379; font-size: 16px; }
+  .hud-ammo .max { color: #bdb6aa; font-size: 16px; }
   .hud-ammo .status { height: 16px; margin-top: 6px; color: #ffa31a; }
   .hud-ammo .bar { height: 3px; width: 120px; margin-left: auto; margin-top: 4px; background: #333; }
   .hud-ammo .bar div { height: 100%; width: 0; background: #ffa31a; }
   .hud-score { position: absolute; right: 40px; top: 28px; text-align: right; }
   .hud-score .points { font-size: 34px; line-height: 1; }
-  .hud-score .label { color: #8a8379; font-size: 11px; }
+  .hud-score .label { color: #bdb6aa; font-size: 11px; }
   .hud-score .combo { margin-top: 8px; font-size: 16px; color: #ffa31a; min-height: 20px; }
   .hud-score .accuracy { margin-top: 4px; color: #bdb6aa; }
   .hud-timer { position: absolute; left: 50%; top: 24px; transform: translateX(-50%);

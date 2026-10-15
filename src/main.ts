@@ -6,6 +6,7 @@ import { createPhysicsWorld } from './core/physics';
 import { createScene } from './core/scene';
 import { Session } from './core/session';
 import { CameraEffects } from './player/cameraEffects';
+import { Footsteps } from './player/footsteps';
 import { Look } from './player/look';
 import { Player } from './player/player';
 import { Scoring } from './targets/scoring';
@@ -18,12 +19,20 @@ import { ImpactEffects } from './weapons/impactEffects';
 import { Recoil } from './weapons/recoil';
 import { Rifle } from './weapons/rifle';
 import { Viewmodel } from './weapons/viewmodel';
+import { Sun } from './world/lighting';
+import { scatterRocks } from './world/rocks';
+import { Sky } from './world/sky';
+import { buildTerrain } from './world/terrain';
 import { buildTestLevel } from './world/testLevel';
 
 async function boot() {
   const world = await createPhysicsWorld();
   const { renderer, scene, camera } = createScene();
+  buildTerrain(scene, world);
+  scatterRocks(scene, world);
   buildTestLevel(scene, world);
+  const sun = new Sun(scene);
+  const sky = new Sky(scene);
 
   const input = new Input(renderer.domElement);
   const look = new Look();
@@ -33,6 +42,7 @@ async function boot() {
   const recoil = new Recoil();
   const viewmodel = new Viewmodel();
   const impacts = new ImpactEffects(scene);
+  const footsteps = new Footsteps(scene, impacts);
   const targets = new TargetManager(scene, world);
   placeTestLevelTargets(targets);
   const scoring = new Scoring();
@@ -65,6 +75,7 @@ async function boot() {
     session.start(mode);
     scoring.reset();
     targets.reset();
+    footsteps.clear();
     rifle.reset();
     const start = CONFIG.player.startPosition;
     player.teleport(start.x, start.y, start.z);
@@ -99,6 +110,7 @@ async function boot() {
       }
 
       player.update(dt, input, look.yaw, rifle.aiming);
+      footsteps.update(dt, player, look.yaw);
       targets.update(dt); // moves target colliders, so it goes before the physics step
       world.timestep = dt;
       world.step();
@@ -112,6 +124,8 @@ async function boot() {
     camera.updateProjectionMatrix();
     look.applyTo(camera, recoil.pitch, recoil.yaw);
     cameraFx.update(dt, player, camera, look.yaw);
+    sun.update(player.feet);
+    sky.update(camera);
 
     if (playing) {
       spread = rifle.spread(player.horizontalSpeed, player.grounded);
