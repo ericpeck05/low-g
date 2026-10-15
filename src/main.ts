@@ -1,3 +1,4 @@
+import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { playHitSound, unlockAudio } from './audio/sfx';
 import { CONFIG } from './config';
@@ -18,12 +19,14 @@ import { placeCityTargets } from './targets/cityTargets';
 import { Hud } from './ui/hud';
 import { Menu } from './ui/menu';
 import type { HitResult } from './targets/target';
+import { Ejecta } from './weapons/ejecta';
 import { applySpread, castShot } from './weapons/hitscan';
 import { ImpactEffects } from './weapons/impactEffects';
 import { Recoil } from './weapons/recoil';
 import { Rifle } from './weapons/rifle';
 import { Viewmodel } from './weapons/viewmodel';
-import { Sun } from './world/lighting';
+import { createEnvironment } from './world/environment';
+import { Sun, sunDirection } from './world/lighting';
 import { scatterRocks } from './world/rocks';
 import { Sky } from './world/sky';
 import { buildTerrain } from './world/terrain';
@@ -34,8 +37,10 @@ async function boot() {
   const world = await createPhysicsWorld();
   const { renderer, scene, camera } = createScene();
   buildTerrain(scene, world);
-  scatterRocks(scene, world);
+  const rocks = scatterRocks(scene, world);
   const city = buildCity(scene, world);
+  // Reflections and fill light come from the sunlit ground, not the black sky.
+  scene.environment = createEnvironment(renderer);
   const sun = new Sun(scene);
   const sky = new Sky(scene);
 
@@ -46,11 +51,23 @@ async function boot() {
   const rifle = new Rifle();
   const recoil = new Recoil();
   const viewmodel = new Viewmodel();
+  viewmodel.scene.environment = scene.environment;
   const impacts = new ImpactEffects(scene);
+  const ejecta = new Ejecta(scene, world, player.collider);
+  // Empty magazines fall out of the gun into the world.
+  viewmodel.onMagazineDrop = (matrixFromEye) => {
+    camera.updateMatrixWorld();
+    const matrix = camera.matrixWorld.clone().multiply(matrixFromEye);
+    const push = new THREE.Vector3(0, -0.6, 0).add(player.velocity);
+    ejecta.magazine(matrix, push);
+  };
+  const toSun = sunDirection();
+  const sunRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, toSun);
   const footsteps = new Footsteps(scene, impacts);
   const targets = new TargetManager(scene, world);
   placeCityTargets(targets);
   const composer = createComposer(renderer, scene, camera);
+  composer.excludeFromAO(sky.group, city.glass, footsteps.prints, ...impacts.objects);
   const scoring = new Scoring();
   const session = new Session();
   const oxygen = new Oxygen();
@@ -86,6 +103,7 @@ async function boot() {
     scoring.reset();
     targets.reset();
     footsteps.clear();
+    ejecta.clear();
     rifle.reset();
     oxygen.reset();
     // The oxygen run keeps you outside: the airlocks stay sealed.
@@ -149,11 +167,13 @@ async function boot() {
     look.applyTo(camera, recoil.pitch, recoil.yaw);
     cameraFx.update(dt, player, camera, look.yaw);
     sun.update(player.feet);
-    sky.update(camera);
+    rocks.update(player.feet);
+    sky.update(camera, playing ? dt : 0);
 
     if (playing) {
       spread = rifle.spread(player.horizontalSpeed, player.grounded);
-      const shots = rifle.update(dt, input);
+      // No shooting until the gun is back up from a sprint.
+      const shots = rifle.update(dt, input, viewmodel.sprintBlend < 0.3);
       for (let i = 0; i < shots; i++) fireShot(spread);
     }
     muzzleLight.intensity = Math.max(0, muzzleLight.intensity - 400 * dt);
@@ -162,8 +182,19 @@ async function boot() {
     camera.rotation.x += recoil.shakePitch;
     camera.rotation.y += recoil.shakeYaw;
 
-    viewmodel.update(dt, rifle, mouse, player.horizontalSpeed, player.grounded);
+    camera.updateMatrixWorld();
+    viewmodel.update(dt, rifle, mouse, {
+      speed: player.horizontalSpeed,
+      grounded: player.grounded,
+      sprinting: player.sprinting,
+      verticalSpeed: player.velocity.y,
+      landingSpeed: player.landingSpeed,
+      sunDirection: toSun.clone().applyQuaternion(camera.quaternion.clone().invert()),
+      sunlit: inSunlight() ? 1 : 0,
+      inside,
+    });
     impacts.update(playing ? dt : 0, camera);
+    if (playing) ejecta.update(dt);
     const survived = session.mode === 'oxygenRun' ? session.elapsed : null;
     hud.update(dt, player, rifle, scoring, oxygen, inside, session.timeLeft, survived, spread, camera.fov, CONFIG.rifle.magazineSize);
 
@@ -192,8 +223,23 @@ async function boot() {
 
     recoil.kick(rifle.aimBlend);
     viewmodel.fire();
-    muzzleLight.position.copy(camera.localToWorld(new THREE.Vector3(0.2, -0.15, -0.9)));
-    muzzleLight.intensity = 20;
+    const muzzle = camera.localToWorld(viewmodel.muzzlePoint());
+    muzzleLight.position.copy(muzzle);
+    muzzleLight.intensity = 14;
+    impacts.muzzleSparks(muzzle, aim);
+    // Spent brass flies out of the ejection port to the right and tumbles away.
+    const port = camera.localToWorld(viewmodel.ejectionPortPoint());
+    const out = viewmodel.ejectionDirection().transformDirection(camera.matrixWorld);
+    const speed = CONFIG.viewmodel.casingSpeed * (0.85 + Math.random() * 0.3);
+    ejecta.casing(port, out.multiplyScalar(speed).add(player.velocity));
+  }
+
+  // Is the player's head in sunlight? (The dome glass lets the sun through.)
+  function inSunlight() {
+    sunRay.origin = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+    const glass = city.glassCollider.handle;
+    const hit = world.castRay(sunRay, 400, true, undefined, undefined, player.collider, undefined, (c) => c.handle !== glass);
+    return hit === null;
   }
 
   function oxygenReward(hit: HitResult) {
@@ -236,7 +282,7 @@ async function boot() {
   // lowg.tick(1 / 60) advances one frame by hand, which is handy for testing.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      lowg: { input, look, player, camera, world, city, oxygen, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, tick, startRun },
+      lowg: { renderer, scene, composer, ejecta, input, look, player, camera, world, city, oxygen, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, tick, startRun },
     });
   }
 }

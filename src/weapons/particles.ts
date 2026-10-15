@@ -49,6 +49,7 @@ export class ParticleSystem {
   private particles: Particle[] = [];
   private geometry = new THREE.BufferGeometry();
   private material: THREE.ShaderMaterial;
+  readonly points: THREE.Points;
   private next = 0;
 
   constructor(scene: THREE.Scene, capacity: number, additive: boolean) {
@@ -79,9 +80,9 @@ export class ParticleSystem {
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
     });
 
-    const points = new THREE.Points(this.geometry, this.material);
-    points.frustumCulled = false; // particles move around; always draw them
-    scene.add(points);
+    this.points = new THREE.Points(this.geometry, this.material);
+    this.points.frustumCulled = false; // particles move around; always draw them
+    scene.add(this.points);
   }
 
   spawn(

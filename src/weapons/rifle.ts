@@ -22,7 +22,8 @@ export class Rifle {
   /**
    * Runs the trigger for one frame. Returns how many shots fired (usually 0 or 1).
    */
-  update(dt: number, input: Input): number {
+  // canFire is false while the gun is lowered (sprinting) and still coming up.
+  update(dt: number, input: Input, canFire = true): number {
     const cfg = CONFIG.rifle;
 
     // Raise or lower the sights. No aiming during a reload.
@@ -48,7 +49,7 @@ export class Rifle {
       return 0;
     }
 
-    if (!input.isDown('Mouse0')) return 0;
+    if (!input.isDown('Mouse0') || !canFire) return 0;
 
     // Pulling the trigger on an empty magazine reloads it.
     if (this.ammo === 0) {

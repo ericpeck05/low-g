@@ -9,11 +9,13 @@ import {
   type TowerSpec,
   towerPosition,
 } from './layout';
+import { patchTriplanar } from '../../core/materialPatches';
+import { concreteDetail } from '../detailTextures';
 import { MATERIALS, lightStrip, pavingTexture, solidBox, solidCylinder, solidTiltedBox, windowTextures } from './kit';
 
 // Everything under the dome: paving, the central plaza and beacon, towers,
 // the ring of walkways between them, ramps, lamps, and the indoor shooting range.
-export function buildInterior(scene: THREE.Scene, world: RAPIER.World) {
+export function buildInterior(scene: THREE.Object3D, world: RAPIER.World) {
   buildPaving(scene);
   buildPlaza(scene, world);
   TOWERS.forEach((tower, i) => buildTower(scene, world, tower, i));
@@ -21,21 +23,21 @@ export function buildInterior(scene: THREE.Scene, world: RAPIER.World) {
   buildRange(scene, world);
 }
 
-function buildPaving(scene: THREE.Scene) {
+function buildPaving(scene: THREE.Object3D) {
   const radius = CONFIG.city.domeRadius - 0.6;
   const texture = pavingTexture();
   texture.repeat.set((radius * 2) / 8, (radius * 2) / 8); // 8 m per texture tile (four 2 m slabs)
-  const floor = new THREE.Mesh(
-    new THREE.CircleGeometry(radius, 96),
-    new THREE.MeshStandardMaterial({ map: texture, roughness: 0.85 }),
-  );
+  const material = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.85 });
+  // Fine concrete grain on top of the slab pattern, so it isn't flat up close.
+  patchTriplanar(material, { ...concreteDetail(), metersPerTile: 2, bumpScale: 0.5 });
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(radius, 96), material);
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = 0.012; // just above the flat ground underneath
   floor.receiveShadow = true;
   scene.add(floor);
 }
 
-function buildPlaza(scene: THREE.Scene, world: RAPIER.World) {
+function buildPlaza(scene: THREE.Object3D, world: RAPIER.World) {
   // A low round platform (low enough to step onto) with a ring of light set into it.
   solidCylinder(scene, world, 0, 0, 0, PLAZA_RADIUS, 0.2, MATERIALS.concrete, 48);
   const ring = new THREE.Mesh(new THREE.TorusGeometry(PLAZA_RADIUS - 1.5, 0.08, 6, 96), MATERIALS.amberLight);
@@ -75,22 +77,46 @@ function buildPlaza(scene: THREE.Scene, world: RAPIER.World) {
   }
 }
 
-function buildTower(scene: THREE.Scene, world: RAPIER.World, tower: TowerSpec, index: number) {
+function buildTower(scene: THREE.Object3D, world: RAPIER.World, tower: TowerSpec, index: number) {
   const p = towerPosition(tower);
-  const { map, emissiveMap } = windowTextures(20 + index);
+  const { map, emissiveMap, roughnessMap } = windowTextures(20 + index);
   // About one texture tile (4 windows by 8 floors) per 10 m around and 28 m up.
   const around = (2 * Math.PI * tower.radius) / 10;
   map.repeat.set(around, tower.height / 28);
   emissiveMap.repeat.copy(map.repeat);
+  roughnessMap.repeat.copy(map.repeat);
   const walls = new THREE.MeshStandardMaterial({
     map,
     emissiveMap,
+    roughnessMap,
     emissive: 0xffffff,
     emissiveIntensity: 1.05,
-    roughness: 0.6,
+    roughness: 1,
   });
   // Cylinder materials: [sides, top, bottom].
   solidCylinder(scene, world, p.x, 0, p.z, tower.radius, tower.height, [walls, MATERIALS.trim, MATERIALS.trim], tower.sides);
+
+  // Floor bands every 4 m: they stand out a little from the wall and throw thin shadow lines.
+  for (let y = 4; y < tower.height - 1.5; y += 4) {
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(tower.radius + 0.14, tower.radius + 0.14, 0.22, tower.sides), MATERIALS.trim);
+    band.position.set(p.x, y, p.z);
+    band.castShadow = true;
+    band.receiveShadow = true;
+    scene.add(band);
+  }
+
+  // Rooftop equipment on the far side from the plaza (the near edge has a target).
+  const outward = new THREE.Vector3(p.x, 0, p.z).normalize();
+  const side = new THREE.Vector3(outward.z, 0, -outward.x);
+  const roofSpot = (out: number, across: number) => p.clone().addScaledVector(outward, out).addScaledVector(side, across);
+  const hvac = roofSpot(tower.radius * 0.45, -tower.radius * 0.35);
+  solidBox(scene, world, { x: hvac.x, y: tower.height + 0.5, z: hvac.z }, { x: 1.8, y: 1, z: 1.2 }, MATERIALS.lightPanel, Math.atan2(outward.x, outward.z));
+  const fan = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.06, 20), MATERIALS.darkMetal);
+  fan.position.set(hvac.x, tower.height + 1.03, hvac.z);
+  scene.add(fan);
+  const mast = roofSpot(tower.radius * 0.55, tower.radius * 0.35);
+  solidBox(scene, world, { x: mast.x, y: tower.height + 1.5, z: mast.z }, { x: 0.12, y: 3, z: 0.12 }, MATERIALS.darkMetal);
+  lightStrip(scene, { x: mast.x, y: tower.height + 3.05, z: mast.z }, { x: 0.15, y: 0.15, z: 0.15 }, MATERIALS.orangeLight);
 
   // Roof: a parapet light ring and a small rooftop hut.
   const crown = new THREE.Mesh(
@@ -113,7 +139,7 @@ function buildTower(scene: THREE.Scene, world: RAPIER.World, tower: TowerSpec, i
 }
 
 // Bridges between neighboring towers at walkway height, plus ramps up from the ground.
-function buildWalkways(scene: THREE.Scene, world: RAPIER.World) {
+function buildWalkways(scene: THREE.Object3D, world: RAPIER.World) {
   const h = CONFIG.city.walkwayHeight;
   for (let i = 0; i < TOWERS.length; i++) {
     const a = TOWERS[i];
@@ -170,7 +196,7 @@ function buildWalkways(scene: THREE.Scene, world: RAPIER.World) {
 }
 
 // An enclosed hall with a doorway facing the plaza, a firing line, and lanes.
-function buildRange(scene: THREE.Scene, world: RAPIER.World) {
+function buildRange(scene: THREE.Object3D, world: RAPIER.World) {
   const { xStart, xEnd, halfWidth, height } = RANGE;
   const length = xEnd - xStart;
   const midX = (xStart + xEnd) / 2;

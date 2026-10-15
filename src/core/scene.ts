@@ -7,6 +7,10 @@ export function createScene() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
+  // Filmic tone mapping: very bright sunlit surfaces roll off gently instead of clipping
+  // to flat white, like a camera exposed for the lunar day.
+  renderer.toneMapping = THREE.AgXToneMapping;
+  renderer.toneMappingExposure = CONFIG.render.exposure;
   // We clear the screen ourselves, because the gun is drawn in a second pass on top.
   renderer.autoClear = false;
   document.body.appendChild(renderer.domElement);

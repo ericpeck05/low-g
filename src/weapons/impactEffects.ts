@@ -57,6 +57,17 @@ export class ImpactEffects {
   }
 
   /**
+   * Burning powder grains thrown out of the muzzle. With no air to slow them they
+   * fly straight and fast, then simply go out.
+   */
+  muzzleSparks(position: THREE.Vector3, direction: THREE.Vector3) {
+    for (let i = 0; i < 5; i++) {
+      const dir = direction.clone().add(randomInSphere().multiplyScalar(0.12)).normalize();
+      this.sparks.spawn(position, dir.multiplyScalar(18 + Math.random() * 20), 0.08 + Math.random() * 0.14, 0.02, SPARK_COLOR, -1000, 0.06);
+    }
+  }
+
+  /**
    * A low puff of dust kicked up from the ground (footsteps, landings).
    * It rises a little, hangs, and settles, with no drifting.
    */
@@ -75,6 +86,11 @@ export class ImpactEffects {
         1,
       );
     }
+  }
+
+  /** The particle clouds, so post-processing can leave them out of ambient occlusion. */
+  get objects() {
+    return [this.dust.points, this.sparks.points];
   }
 
   update(dt: number, camera: THREE.PerspectiveCamera) {

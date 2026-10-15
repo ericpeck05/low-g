@@ -18,7 +18,7 @@ class Door {
   private halves: { mesh: THREE.Mesh; collider: RAPIER.Collider; side: number }[] = [];
 
   constructor(
-    scene: THREE.Scene,
+    scene: THREE.Object3D,
     world: RAPIER.World,
     private place: (u: number, v: number, y: number) => THREE.Vector3,
     rotationY: number,
@@ -29,6 +29,7 @@ class Door {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(PASSAGE_HALF_WIDTH, PASSAGE_HEIGHT, DOOR_THICKNESS), material);
       mesh.rotation.y = rotationY;
       mesh.castShadow = true;
+      mesh.userData.dynamic = true; // it moves, so it can't be merged with the static city
       scene.add(mesh);
       const collider = world.createCollider(
         RAPIER.ColliderDesc.cuboid(PASSAGE_HALF_WIDTH / 2, PASSAGE_HEIGHT / 2, DOOR_THICKNESS / 2).setRotation(mesh.quaternion),
@@ -82,7 +83,7 @@ export class Airlock {
   private cycleStrip: THREE.Mesh;
   private time = 0;
 
-  constructor(scene: THREE.Scene, world: RAPIER.World, bearingDegrees: number) {
+  constructor(scene: THREE.Object3D, world: RAPIER.World, bearingDegrees: number) {
     const b = THREE.MathUtils.degToRad(bearingDegrees);
     this.radial = new THREE.Vector3(Math.sin(b), 0, Math.cos(b));
     this.lateral = new THREE.Vector3(Math.cos(b), 0, -Math.sin(b));
@@ -114,7 +115,7 @@ export class Airlock {
     // Status lamps above each door, on both faces.
     for (const u of [R - 5.6, R - 4.4, R + 6.4, R + 7.6]) {
       const lamp = lightStrip(scene, this.place(u, 0, PASSAGE_HEIGHT + 0.35), { x: 1.6, y: 0.3, z: 0.1 }, MATERIALS.amberLight, b);
-      lamp.material = MATERIALS.amberLight;
+      lamp.userData.dynamic = true; // changes color
       this.lamps.push(lamp);
     }
     // A strip in the chamber that pulses while it cycles.

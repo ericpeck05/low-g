@@ -1,193 +1,270 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
+import { mergeRigidParts } from '../core/mergeMeshes';
+import { buildHands } from './hands';
 import type { Rifle } from './rifle';
+import { buildRifle, type RifleModel } from './rifleModel';
 
-// Where the holo sight's red-dot (here: amber dot) sits on the gun model.
-// When aiming down sights we move the gun so this point lines up with screen center.
-const SIGHT_DOT = new THREE.Vector3(0, 0.078, -0.03);
-const MUZZLE = new THREE.Vector3(0, 0.005, -0.57);
-const SIGHT_DISTANCE = 0.2; // how far in front of the eye the sight sits when aiming
+// What the player's body is doing, for animating the gun.
+export interface ViewState {
+  speed: number; // horizontal m/s
+  grounded: boolean;
+  sprinting: boolean;
+  verticalSpeed: number;
+  landingSpeed: number; // > 0 on the frame you land
+  sunDirection: THREE.Vector3; // toward the sun, in camera space
+  sunlit: number; // 0 = the player is in shadow, 1 = in full sun
+  inside: boolean; // under the dome (warm city light around you)
+}
 
-// The rifle you see in your hands, built from simple shapes.
-// It lives in its own little scene drawn on top of the world with its own camera,
-// so it never pokes through walls and doesn't stretch when the main view zooms.
+const smooth = (t: number) => t * t * (3 - 2 * t);
+const phase = (p: number, from: number, to: number) => smooth(THREE.MathUtils.clamp((p - from) / (to - from), 0, 1));
+
+// The rifle and the gloved hands holding it. They live in their own little scene,
+// drawn on top of the world with their own camera, so they never poke through
+// walls and don't stretch when the main view zooms in.
+//
+// The scene's origin is the eye, looking down -z, the same as the main camera,
+// so a point here can be turned into a world position with camera.localToWorld.
 export class Viewmodel {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
+  /** Called with the magazine's transform (in this scene's space) when it drops out on a reload. */
+  onMagazineDrop: ((matrix: THREE.Matrix4) => void) | null = null;
+  sprintBlend = 0; // 0 = gun up and ready, 1 = lowered for sprinting
 
-  private gun = new THREE.Group();
-  private flash: THREE.Group;
-  private flashLight = new THREE.PointLight(0xffb050, 0, 2);
+  private rig = new THREE.Group(); // gun and hands together
+  private model: RifleModel;
+  private leftHand: THREE.Group;
+  private sun = new THREE.DirectionalLight(CONFIG.lighting.sunColor, 0);
+  private fill = new THREE.AmbientLight(0xffd2a0, 0);
+
+  // Animation state
+  private time = 0;
+  private kick = 0;
+  private kickVelocity = 0;
+  private kickYaw = 0;
+  private bolt = 0;
   private flashTimer = 0;
-
-  private kick = 0; // 0 to 1-ish, how much recent shooting is pushing the gun back
   private sway = new THREE.Vector2();
   private bobPhase = 0;
+  private landing = 0;
+  private landingVelocity = 0;
+  private vertical = 0;
+  private reloadPose = 0;
+  private magazineDropped = false;
+  private sunlit = 1;
 
   constructor() {
-    this.camera = new THREE.PerspectiveCamera(
-      CONFIG.viewmodel.fov,
-      window.innerWidth / window.innerHeight,
-      0.01,
-      10,
-    );
+    this.camera = new THREE.PerspectiveCamera(CONFIG.viewmodel.fov, window.innerWidth / window.innerHeight, 0.01, 10);
     window.addEventListener('resize', () => {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
     });
 
-    // The gun gets its own lights, matched roughly to the world's harsh sun.
-    const sun = new THREE.DirectionalLight(0xfff4e0, 2.2);
-    sun.position.set(0.6, 1, 0.4);
-    this.scene.add(sun, new THREE.AmbientLight(0xffffff, 0.35), this.flashLight);
+    this.model = buildRifle();
+    const hands = buildHands();
+    this.leftHand = hands.left;
+    // Fuse each rigid piece's many parts into a few meshes; the moving parts stay separate.
+    const m = this.model;
+    mergeRigidParts(m.root, [m.bolt, m.magazine, m.chargingHandle, m.flash]);
+    mergeRigidParts(m.magazine);
+    mergeRigidParts(hands.right);
+    mergeRigidParts(hands.left);
+    this.rig.add(this.model.root, hands.right, hands.left);
+    this.scene.add(this.rig);
 
-    buildRifle(this.gun);
-    this.flash = buildMuzzleFlash();
-    this.flash.position.copy(MUZZLE);
-    this.gun.add(this.flash);
-    this.flashLight.position.copy(MUZZLE);
-    this.gun.add(this.flashLight);
-    this.scene.add(this.gun);
+    // The same sun as the world, turned to match where you're looking, with its own
+    // small shadow map so the hands and sight shade the gun.
+    this.sun.castShadow = true;
+    this.sun.shadow.mapSize.set(1024, 1024);
+    const s = this.sun.shadow.camera;
+    s.left = s.bottom = -0.6;
+    s.right = s.top = 0.6;
+    s.near = 0.05;
+    s.far = 4;
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.002;
+    this.scene.add(this.sun, this.sun.target, this.fill);
   }
 
   fire() {
-    this.kick = Math.min(1.5, this.kick + 1);
+    this.kickVelocity += 2.6; // a sharp shove; the spring brings it back
+    this.kickYaw = (Math.random() - 0.5) * 0.02;
+    this.bolt = 1;
     this.flashTimer = CONFIG.viewmodel.muzzleFlashTime;
-    // A new random twist each shot so the flash never looks the same twice.
-    this.flash.rotation.z = Math.random() * Math.PI;
-    this.flash.scale.setScalar(0.8 + Math.random() * 0.5);
+    this.model.flash.rotation.z = Math.random() * Math.PI;
+    this.model.flash.scale.setScalar(0.7 + Math.random() * 0.45);
   }
 
-  update(dt: number, rifle: Rifle, mouse: { x: number; y: number }, speed: number, grounded: boolean) {
+  /** A point on the gun (gun space) in this scene's space, i.e. relative to the eye. */
+  private gunPoint(point: THREE.Vector3) {
+    this.rig.updateMatrixWorld();
+    return this.model.root.localToWorld(point.clone());
+  }
+
+  muzzlePoint() {
+    return this.gunPoint(this.model.muzzle);
+  }
+
+  ejectionPortPoint() {
+    return this.gunPoint(this.model.ejectionPort);
+  }
+
+  /** Which way spent casings fly out (right, up and a little back), in this scene's space. */
+  ejectionDirection() {
+    this.rig.updateMatrixWorld();
+    return new THREE.Vector3(1, 0.55, 0.25).normalize().transformDirection(this.model.root.matrixWorld);
+  }
+
+  update(dt: number, rifle: Rifle, mouse: { x: number; y: number }, state: ViewState) {
     const cfg = CONFIG.viewmodel;
+    this.time += dt;
     const aim = rifle.aimBlend;
+    const steady = 1 - aim * 0.8;
 
-    // Position: blend from the bottom-right hip spot to centered behind the sight.
+    // Sprinting lowers the gun across the body; aiming or firing raises it.
+    const sprintTarget = state.sprinting && !rifle.reloading ? 1 : 0;
+    this.sprintBlend += (sprintTarget - this.sprintBlend) * Math.min(1, (sprintTarget ? 6 : 12) * dt);
+
+    // Reload: tip the gun to show the magazine well.
+    const reloadTarget = rifle.reloading && rifle.reloadProgress < 0.86 ? 1 : 0;
+    this.reloadPose += (reloadTarget - this.reloadPose) * Math.min(1, 9 * dt);
+
+    // Base pose: from the hip to behind the sight.
     const hip = new THREE.Vector3(cfg.hipPosition.x, cfg.hipPosition.y, cfg.hipPosition.z);
-    const ads = new THREE.Vector3(-SIGHT_DOT.x, -SIGHT_DOT.y, -SIGHT_DISTANCE - SIGHT_DOT.z);
+    const sight = this.model.sightDot;
+    const ads = new THREE.Vector3(-sight.x, -sight.y, -cfg.eyeRelief - sight.z);
     const position = hip.lerp(ads, aim);
+    // At the hip the gun turns in a little and rolls so you see more of its left side.
+    const rotation = new THREE.Euler(0.02 * (1 - aim), 0.085 * (1 - aim), -0.16 * (1 - aim));
 
-    // Sway: the gun lags a little behind fast mouse movement (less when aiming).
-    const swayTarget = new THREE.Vector2(-mouse.x, mouse.y).multiplyScalar(cfg.swayAmount * (1 - aim * 0.8));
-    swayTarget.clampLength(0, 0.03);
-    this.sway.lerp(swayTarget, Math.min(1, 10 * dt));
+    // Pose blends: sprint (gun down and canted across the chest) and reload (tilted).
+    position.add(new THREE.Vector3(-0.05, -0.04, 0.035).multiplyScalar(this.sprintBlend));
+    rotation.x += -0.3 * this.sprintBlend;
+    rotation.y += 0.55 * this.sprintBlend;
+    rotation.z += 0.3 * this.sprintBlend;
+    position.add(new THREE.Vector3(-0.04, 0.035, 0.03).multiplyScalar(this.reloadPose));
+    rotation.x += 0.12 * this.reloadPose;
+    rotation.y += 0.25 * this.reloadPose;
+    rotation.z += 0.5 * this.reloadPose;
+
+    // Breathing: a slow drift, much smaller when aiming.
+    position.y += Math.sin(this.time * 1.5) * 0.0022 * steady;
+    rotation.x += Math.sin(this.time * 1.5 + 1) * 0.0035 * steady;
+    rotation.y += Math.sin(this.time * 0.7) * 0.0025 * steady;
+
+    // Sway: the gun lags behind fast mouse movement.
+    const swayTarget = new THREE.Vector2(-mouse.x, mouse.y).multiplyScalar(cfg.swayAmount * steady).clampLength(0, 0.03);
+    this.sway.lerp(swayTarget, Math.min(1, 9 * dt));
     position.x += this.sway.x;
     position.y += this.sway.y;
+    rotation.y += this.sway.x * 1.5;
+    rotation.x -= this.sway.y * 1.5;
 
-    // Bob while walking, matching the camera's rhythm.
-    this.bobPhase += speed * dt * CONFIG.cameraFx.bobFrequency * Math.PI;
-    const bobScale = grounded ? Math.min(1, speed / CONFIG.player.walkSpeed) * (1 - aim * 0.85) : 0;
-    position.x += Math.sin(this.bobPhase) * 0.008 * bobScale;
-    position.y += Math.abs(Math.sin(this.bobPhase)) * 0.008 * bobScale;
+    // Walking: the slow, loping bounce of moon gait, with a little roll each step.
+    this.bobPhase += state.speed * dt * CONFIG.cameraFx.bobFrequency * Math.PI;
+    const bob = state.grounded ? Math.min(1, state.speed / CONFIG.player.walkSpeed) * (1 - aim * 0.85) : 0;
+    position.x += Math.sin(this.bobPhase) * 0.01 * bob;
+    position.y += -Math.abs(Math.sin(this.bobPhase)) * 0.012 * bob;
+    rotation.z += Math.sin(this.bobPhase) * 0.015 * bob;
 
-    // Kick: slide back and tilt up on each shot, then settle.
-    this.kick -= this.kick * Math.min(1, cfg.kickRecovery * dt);
-    position.z += this.kick * cfg.kickBack * (1 - aim * 0.5);
-    let tiltX = THREE.MathUtils.degToRad(cfg.kickUp) * this.kick * (1 - aim * 0.6);
-    let rollZ = 0;
+    // In the air the gun floats up a little as you fall and sinks as you rise;
+    // landing gives it a springy dip.
+    const verticalTarget = THREE.MathUtils.clamp(-state.verticalSpeed * 0.005, -0.02, 0.02);
+    this.vertical += (verticalTarget - this.vertical) * Math.min(1, 5 * dt);
+    position.y += this.vertical * steady;
+    if (state.landingSpeed > 0) this.landingVelocity -= Math.min(0.5, state.landingSpeed * 0.12);
+    this.landingVelocity += (-160 * this.landing - 18 * this.landingVelocity) * dt;
+    this.landing += this.landingVelocity * dt;
+    position.y += this.landing * steady;
 
-    // Reload: dip the gun down and roll it over, peaking halfway through.
+    // Recoil: a spring that snaps back after each shot.
+    this.kickVelocity += (-420 * this.kick - 38 * this.kickVelocity) * dt;
+    this.kick += this.kickVelocity * dt;
+    const recoil = 1 - aim * 0.5;
+    position.z += this.kick * cfg.kickBack * recoil;
+    rotation.x += THREE.MathUtils.degToRad(cfg.kickUp) * this.kick * recoil;
+    rotation.y += this.kickYaw * this.kick;
+
+    this.rig.position.copy(position);
+    this.rig.rotation.copy(rotation);
+
+    this.animateParts(dt, rifle);
+    this.light(dt, state);
+  }
+
+  private animateParts(dt: number, rifle: Rifle) {
+    const m = this.model;
+    // Bolt carrier: slams back on each shot and runs home again.
+    this.bolt = Math.max(0, this.bolt - dt * 30);
+    let boltBack = this.bolt * 0.04;
+
+    // Reload choreography, keyed to how far through the reload we are.
+    const p = rifle.reloading ? rifle.reloadProgress : 1;
+    const hand = this.leftHand;
+    hand.position.set(0, 0, 0);
+    hand.rotation.set(0, 0, 0);
+    m.magazine.visible = true;
+    m.magazine.position.copy(m.magazineWell);
     if (rifle.reloading) {
-      const dip = Math.sin(rifle.reloadProgress * Math.PI);
-      position.y -= 0.12 * dip;
-      tiltX -= 0.5 * dip;
-      rollZ += 0.6 * dip;
-    }
+      // 1. Release: the old magazine drops out (handed to the world as a real object).
+      if (p >= 0.1 && !this.magazineDropped) {
+        this.magazineDropped = true;
+        this.rig.updateMatrixWorld();
+        this.onMagazineDrop?.(m.magazine.matrixWorld.clone());
+      }
+      // The bolt locks back on an empty gun until the new magazine is in.
+      if (p >= 0.1 && p < 0.7) boltBack = 0.04;
+      // 2. The left hand leaves the handguard and goes down for a fresh magazine...
+      const down = phase(p, 0.1, 0.3);
+      // 3. ...brings it up to the well...
+      const up = phase(p, 0.32, 0.55);
+      // 4. ...seats it with a push...
+      const seat = phase(p, 0.55, 0.62);
+      // 5. ...slaps the bolt release, and goes back to the handguard.
+      const slap = phase(p, 0.62, 0.7);
+      const back = phase(p, 0.72, 0.88);
 
-    this.gun.position.copy(position);
-    // At the hip the gun angles slightly toward the screen center.
-    this.gun.rotation.set(tiltX, 0.04 * (1 - aim), rollZ);
+      const magDrop = new THREE.Vector3(0, -0.32, 0.06);
+      const belowWell = new THREE.Vector3(0, -0.04, 0.01);
+      const magOffset = p < 0.32 ? magDrop : magDrop.clone().lerp(belowWell, up).lerp(new THREE.Vector3(), seat);
+      m.magazine.visible = p < 0.1 || p >= 0.32;
+      m.magazine.position.copy(m.magazineWell).add(magOffset);
+
+      // The hand holds the magazine from underneath while it's carrying it.
+      const handOnMag = new THREE.Vector3(0.012, -0.27, 0.26).add(m.magazineWell).add(magOffset);
+      const boltCatch = new THREE.Vector3(-0.02, 0.02, 0.29);
+      const offscreen = new THREE.Vector3(-0.02, -0.38, 0.3);
+      const target = new THREE.Vector3();
+      if (p < 0.32) target.copy(offscreen).multiplyScalar(down);
+      else if (p < 0.62) target.copy(handOnMag);
+      else if (p < 0.72) target.copy(handOnMag).lerp(boltCatch, slap);
+      else target.copy(boltCatch).lerp(new THREE.Vector3(), back);
+      hand.position.copy(target);
+      const holdingMag = p >= 0.32 && p < 0.62 ? 1 : 0;
+      hand.rotation.set(0.35 * holdingMag + 0.3 * down * (p < 0.32 ? 1 : 0), 0, -0.2 * holdingMag);
+    } else {
+      this.magazineDropped = false;
+    }
+    m.bolt.position.z = boltBack;
+    m.chargingHandle.position.z = 0;
 
     // Muzzle flash
     this.flashTimer -= dt;
-    const flashing = this.flashTimer > 0;
-    this.flash.visible = flashing;
-    this.flashLight.intensity = flashing ? 3 : 0;
-  }
-}
-
-function buildRifle(gun: THREE.Group) {
-  // Low metalness on purpose: shiny metal looks black when there's no environment to reflect.
-  const metal = new THREE.MeshStandardMaterial({ color: 0x55524d, roughness: 0.55, metalness: 0.25 });
-  const polymer = new THREE.MeshStandardMaterial({ color: 0x6b655c, roughness: 0.85 });
-  const amber = new THREE.MeshStandardMaterial({ color: 0xffa31a, emissive: 0xff8a00, emissiveIntensity: 0.6 });
-
-  // [width, height, depth], [x, y, z], material, optional tilt around x
-  const boxes: [number[], number[], THREE.Material, number?][] = [
-    [[0.06, 0.08, 0.3], [0, 0, 0], metal], // receiver
-    [[0.056, 0.06, 0.24], [0, -0.004, -0.27], polymer], // handguard
-    [[0.04, 0.13, 0.07], [0, -0.1, -0.05], metal, 0.2], // magazine
-    [[0.036, 0.1, 0.045], [0, -0.085, 0.1], polymer, -0.35], // grip
-    [[0.045, 0.075, 0.2], [0, -0.015, 0.25], polymer], // stock
-    [[0.062, 0.008, 0.18], [0, 0.0, -0.06], amber], // accent stripe (sticks out slightly each side)
-    [[0.035, 0.014, 0.08], [0, 0.047, -0.03], metal], // sight base
-    [[0.006, 0.05, 0.012], [-0.022, 0.078, -0.06], metal], // sight frame left
-    [[0.006, 0.05, 0.012], [0.022, 0.078, -0.06], metal], // sight frame right
-    [[0.05, 0.006, 0.012], [0, 0.103, -0.06], metal], // sight frame top
-  ];
-  for (const [[w, h, d], [x, y, z], material, tilt] of boxes) {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-    mesh.position.set(x, y, z);
-    if (tilt) mesh.rotation.x = tilt;
-    gun.add(mesh);
+    m.flash.visible = this.flashTimer > 0;
+    m.setAmmoDisplay(rifle.ammo, CONFIG.rifle.magazineSize, rifle.reloading);
   }
 
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.18, 12), metal);
-  barrel.rotation.x = Math.PI / 2; // cylinders stand upright by default
-  barrel.position.set(0, 0.005, -0.47);
-  const brake = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.045, 12), metal);
-  brake.rotation.x = Math.PI / 2;
-  brake.position.set(0, 0.005, -0.55);
-  gun.add(barrel, brake);
-
-  // Holo sight: a faintly tinted glass pane with a glowing aiming dot.
-  const glass = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.04, 0.045),
-    new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0.08, depthWrite: false }),
-  );
-  glass.position.set(0, 0.078, -0.06);
-  const dot = new THREE.Mesh(new THREE.CircleGeometry(0.0014, 16), new THREE.MeshBasicMaterial({ color: 0xffa31a }));
-  dot.position.copy(SIGHT_DOT);
-  gun.add(glass, dot);
-}
-
-// A few crossed glowing planes make a star-shaped flash.
-function buildMuzzleFlash() {
-  const texture = radialGlowTexture();
-  const material = new THREE.MeshBasicMaterial({
-    map: texture,
-    color: 0xffc070,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const flash = new THREE.Group();
-  const front = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.16), material);
-  flash.add(front);
-  for (const angle of [0, Math.PI / 2]) {
-    const side = new THREE.Mesh(new THREE.PlaneGeometry(0.07, 0.24), material);
-    // Lay the plane along the barrel, then spin it around the barrel: one flat, one upright.
-    side.rotation.order = 'ZYX';
-    side.rotation.set(Math.PI / 2, 0, angle);
-    side.position.z = -0.08;
-    flash.add(side);
+  // Match the world's sun: same direction relative to your view, dark when you
+  // stand in shadow, plus warm city light when you're under the dome.
+  private light(dt: number, state: ViewState) {
+    this.sunlit += (state.sunlit - this.sunlit) * Math.min(1, 8 * dt);
+    this.sun.intensity = CONFIG.lighting.sunIntensity * this.sunlit;
+    const center = this.rig.position;
+    this.sun.target.position.copy(center);
+    this.sun.position.copy(center).addScaledVector(state.sunDirection, 2);
+    const fillTarget = state.inside ? 0.35 : 0;
+    this.fill.intensity += (fillTarget - this.fill.intensity) * Math.min(1, 3 * dt);
   }
-  flash.visible = false;
-  return flash;
-}
-
-// A soft white blob that fades to transparent, drawn on a canvas so we need no image file.
-function radialGlowTexture() {
-  const size = 64;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  gradient.addColorStop(0, 'rgba(255,255,255,1)');
-  gradient.addColorStop(0.3, 'rgba(255,220,160,0.8)');
-  gradient.addColorStop(1, 'rgba(255,140,40,0)');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, size, size);
-  return new THREE.CanvasTexture(canvas);
 }

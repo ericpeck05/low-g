@@ -10,7 +10,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 // Boot prints pressed into the dust, and little puffs kicked up with each step.
 // Prints only appear on the lunar surface, not on crates or buildings.
 export class Footsteps {
-  private prints: THREE.InstancedMesh;
+  readonly prints: THREE.InstancedMesh;
   private next = 0; // which print slot to reuse next
   private distance = 0; // meters walked since the last step
   private leftFoot = true;

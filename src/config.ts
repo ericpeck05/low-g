@@ -102,13 +102,14 @@ export const CONFIG = {
   },
 
   viewmodel: {
-    fov: 60, // the gun is drawn with its own fixed camera so it never stretches
-    hipPosition: { x: 0.2, y: -0.2, z: -0.48 }, // bottom right of the screen
-    kickBack: 0.05, // meters the gun slides back per shot
-    kickUp: 4, // degrees the gun tilts up per shot
-    kickRecovery: 14,
+    fov: 58, // the gun is drawn with its own fixed camera so it never stretches
+    hipPosition: { x: 0.175, y: -0.205, z: -0.43 }, // where the trigger sits, relative to the eye
+    eyeRelief: 0.17, // meters from the eye to the sight when aiming down sights
+    kickBack: 0.03, // meters the gun slides back per shot
+    kickUp: 3, // degrees the gun tilts up per shot
     swayAmount: 0.0006, // how much the gun lags behind mouse movement
-    muzzleFlashTime: 0.05, // seconds the flash stays visible
+    muzzleFlashTime: 0.035, // seconds: short, there's no air for a fireball
+    casingSpeed: 2.6, // m/s spent brass leaves the ejection port
   },
 
   impacts: {
@@ -181,12 +182,15 @@ export const CONFIG = {
     blendRadius: 210, // terrain fades from flat to full height out to here
     hillHeight: 7, // meters of rolling hills
     hillScale: 140, // meters between hill tops, roughly
-    craterCount: 70,
-    craterMinRadius: 4,
-    craterMaxRadius: 45,
+    // Craters at three sizes. Real lunar ground is covered in them at every scale.
+    largeCraters: 16, // 25-70 m radius: big, old basins
+    mediumCraters: 260, // 6-25 m radius
+    smallCraters: 1400, // 2.5-6 m radius
+    freshFraction: 0.2, // share of craters young enough to be sharp and have bright rays
     edgeHillHeight: 45, // a ring of tall hills at the map edge that hides the end of the world
     edgeHillWidth: 140,
-    textureMeters: 6, // the ground texture repeats every this many meters
+    textureMeters: 8, // the ground texture repeats every this many meters
+    shadowBakeDistance: 220, // meters: how far shadows are traced toward the sun when baking
   },
 
   city: {
@@ -196,6 +200,14 @@ export const CONFIG = {
     airlockBearings: [180, 0], // degrees: north (toward the Earth) and south (toward the landing pad)
     airlockDoorSpeed: 2.5, // m/s the doors slide
     airlockCycleTime: 1.2, // seconds to "pressurize" between closing one door and opening the other
+  },
+
+  render: {
+    exposure: 0.85, // overall brightness after tone mapping
+    msaaSamples: 4, // anti-aliasing samples for the main image
+    ambientOcclusion: true, // soft contact shadows in corners; the most expensive effect (turn off on slow machines)
+    aoRadius: 1.6, // meters: how far ambient occlusion looks for nearby surfaces
+    aoIntensity: 0.9, // 0 = off, 1 = full darkening in corners and crevices
   },
 
   bloom: {
@@ -220,10 +232,10 @@ export const CONFIG = {
   },
 
   rocks: {
-    pebbles: 2600, // small rocks, no collision
-    boulders: 180, // big rocks you collide with
-    boulderMinSize: 1.2, // meters
-    boulderMaxSize: 4.5,
+    pebbles: 9000, // fist-sized and smaller, no collision
+    stones: 1800, // knee-high, no collision (you can step over or through them)
+    boulders: 220, // big rocks you collide with
+    nearCraterShare: 0.65, // most rocks lie around crater rims, where impacts threw them
   },
 
   footsteps: {
@@ -237,7 +249,11 @@ export const CONFIG = {
   lighting: {
     sunColor: 0xfff6ea, // very slightly warm white
     sunIntensity: 4.5, // harsh: nothing in the way
-    ambientIntensity: 0.06, // almost none: no air to scatter light into shadows
-    earthshineIntensity: 0.12, // faint fill light reflected off the Earth
+    ambientIntensity: 0.012, // nearly none: no air to scatter light into shadows
+    earthshineIntensity: 0.05, // faint fill light reflected off the Earth
+    // How bright the sunlit ground looks to everything above it. On the Moon this
+    // bounce light off the regolith is what fills shadows, from below, not the sky.
+    groundBounce: 0.16,
+    opposition: 0.45, // extra brightness of ground seen with the sun behind you (the "opposition surge")
   },
 };

@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { CONFIG } from '../../config';
+import { patchFresnelGlass } from '../../core/materialPatches';
 import { MATERIALS } from './kit';
 
 // The pressurized dome: a huge glass shell over the whole city.
@@ -54,7 +55,7 @@ function isGap(column: number, ring: number) {
   });
 }
 
-export function buildDome(scene: THREE.Scene, world: RAPIER.World) {
+export function buildDome(scene: THREE.Object3D, world: RAPIER.World) {
   // Build the shell as triangles, skipping the airlock gaps.
   const vertices: number[] = [];
   for (let ring = 0; ring < RINGS; ring++) {
@@ -73,31 +74,31 @@ export function buildDome(scene: THREE.Scene, world: RAPIER.World) {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.computeVertexNormals();
 
-  // Glass: nearly clear with a faint warm tint. The sun still glints off it.
-  const glass = new THREE.Mesh(
-    geometry,
-    new THREE.MeshStandardMaterial({
-      color: 0xfff0dc,
-      transparent: true,
-      opacity: 0.07,
-      roughness: 0.08,
-      metalness: 0,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    }),
-  );
+  // Glass: black color so it shows only reflections. Nearly clear looking straight
+  // through it, mirror-like at shallow angles, and the sun glints off it.
+  const glassMaterial = new THREE.MeshStandardMaterial({
+    color: 0x000000,
+    transparent: true,
+    roughness: 0.04,
+    metalness: 0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  patchFresnelGlass(glassMaterial, 0.05, 0.7);
+  const glass = new THREE.Mesh(geometry, glassMaterial);
   glass.renderOrder = 1; // draw after the dust and other see-through things
   scene.add(glass);
 
   // Solid shell: you can't walk or jetpack out through the glass.
   const indices = new Uint32Array(positions.length / 3).map((_, i) => i);
-  world.createCollider(RAPIER.ColliderDesc.trimesh(positions, indices));
+  const collider = world.createCollider(RAPIER.ColliderDesc.trimesh(positions, indices));
 
   buildFrame(scene);
+  return { glass, collider };
 }
 
 // Struts along every other meridian and every third ring, plus a concrete footing.
-function buildFrame(scene: THREE.Scene) {
+function buildFrame(scene: THREE.Object3D) {
   const segments: [THREE.Vector3, THREE.Vector3][] = [];
   for (let col = 0; col < MERIDIANS; col += 2) {
     for (let ring = 0; ring < RINGS; ring++) {

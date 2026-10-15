@@ -17,6 +17,7 @@ export class Player {
   readonly velocity = new THREE.Vector3();
   grounded = false;
   crouched = false;
+  sprinting = false;
   /** Downward speed at the moment we touched the ground this frame, else 0. */
   landingSpeed = 0;
 
@@ -89,7 +90,10 @@ export class Player {
     if (input.isDown('KeyA')) wish.sub(right);
     if (wish.lengthSq() > 0) wish.normalize();
 
-    const sprinting = input.isDown('ShiftLeft', 'ShiftRight') && !this.crouched && !aiming;
+    // You can't sprint while aiming, crouching or shooting: pulling the trigger raises the gun.
+    const sprinting =
+      input.isDown('ShiftLeft', 'ShiftRight') && !this.crouched && !aiming && !input.isDown('Mouse0') && wish.lengthSq() > 0;
+    this.sprinting = sprinting && this.grounded;
     let speed = this.crouched ? cfg.crouchWalkSpeed : sprinting ? cfg.sprintSpeed : cfg.walkSpeed;
     if (aiming) speed *= CONFIG.rifle.adsMoveScale;
 

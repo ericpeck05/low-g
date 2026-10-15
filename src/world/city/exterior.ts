@@ -7,7 +7,7 @@ import { MATERIALS, lightStrip, pavingTexture, solidBox, solidCylinder, solidTil
 // Everything outside the dome: the landing pad and lander, solar arrays,
 // habitat modules joined by tubes, and antenna masts. Returns an update
 // function for the few things that animate (blinking lights).
-export function buildExterior(scene: THREE.Scene, world: RAPIER.World) {
+export function buildExterior(scene: THREE.Object3D, world: RAPIER.World) {
   buildLandingPad(scene, world);
   buildSolarField(scene, world);
   buildModules(scene, world);
@@ -25,7 +25,7 @@ export function buildExterior(scene: THREE.Scene, world: RAPIER.World) {
   };
 }
 
-function buildLandingPad(scene: THREE.Scene, world: RAPIER.World) {
+function buildLandingPad(scene: THREE.Object3D, world: RAPIER.World) {
   const { x, z, radius } = LANDING_PAD;
   // Low enough (0.3 m) to step onto.
   const top = new THREE.MeshStandardMaterial({ map: padMarkings(), roughness: 0.8 });
@@ -47,22 +47,7 @@ function buildLandingPad(scene: THREE.Scene, world: RAPIER.World) {
   path.receiveShadow = true;
   scene.add(path);
 
-  // A parked lander: a squat body on four legs with a cone on top.
-  const lx = x + 3;
-  const lz = z - 2;
-  solidCylinder(scene, world, lx, 2.3, lz, 3, 3.6, [MATERIALS.lightPanel, MATERIALS.trim, MATERIALS.trim], 8);
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(2.4, 2.4, 8), MATERIALS.lightPanel);
-  cone.position.set(lx, 7.1, lz);
-  cone.castShadow = true;
-  scene.add(cone);
-  lightStrip(scene, { x: lx, y: 4.1, z: lz }, { x: 6.1, y: 0.2, z: 0.2 }, MATERIALS.amberLight);
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-    const foot = new THREE.Vector3(lx + Math.sin(a) * 4.2, 0.3, lz + Math.cos(a) * 4.2);
-    const hip = new THREE.Vector3(lx + Math.sin(a) * 2.6, 2.8, lz + Math.cos(a) * 2.6);
-    solidTube(scene, world, foot, hip, 0.15, MATERIALS.darkMetal);
-    solidCylinder(scene, world, foot.x, 0.3, foot.z, 0.6, 0.15, MATERIALS.darkMetal, 12);
-  }
+  buildLander(scene, world, x + 3, z - 2);
 
   // Cargo containers beside the pad: cover, and something to jump onto.
   // [x, z, turn in radians, level: 0 on the ground, 1 stacked on top]
@@ -79,10 +64,59 @@ function buildLandingPad(scene: THREE.Scene, world: RAPIER.World) {
   }
 }
 
-function buildSolarField(scene: THREE.Scene, world: RAPIER.World) {
+// A parked lander, like the real ones: a gold-foil-wrapped descent stage on four
+// sprung legs, a white crew cabin on top with windows, thruster pods and an engine bell.
+function buildLander(scene: THREE.Object3D, world: RAPIER.World, lx: number, lz: number) {
+  const base = 0.3; // the pad deck
+  // Descent stage: an octagonal box in foil.
+  solidCylinder(scene, world, lx, base + 1.8, lz, 2.6, 1.8, [MATERIALS.foil, MATERIALS.trim, MATERIALS.trim], 8);
+  // Engine bell underneath.
+  const bell = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.9, 1.0, 24, 1, true), MATERIALS.darkMetal);
+  bell.position.set(lx, base + 1.35, lz);
+  scene.add(bell);
+  // Crew cabin: white panels, two dark windows and a hatch.
+  solidCylinder(scene, world, lx, base + 3.6, lz, 1.9, 2.2, [MATERIALS.lightPanel, MATERIALS.trim, MATERIALS.trim], 6);
+  const glass = new THREE.MeshStandardMaterial({ color: 0x0c0c0c, roughness: 0.05, metalness: 0.2 });
+  for (const angle of [-0.35, 0.35]) {
+    const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.5), glass);
+    const a = Math.PI + angle; // facing the dome
+    pane.position.set(lx + Math.sin(a) * 1.72, base + 5.0, lz + Math.cos(a) * 1.72);
+    pane.rotation.y = a;
+    scene.add(pane);
+  }
+  solidBox(scene, world, { x: lx, y: base + 4.4, z: lz - 1.78 }, { x: 0.9, y: 1.2, z: 0.12 }, MATERIALS.trim);
+  // Docking ring and antenna on top.
+  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.35, 20), MATERIALS.trim);
+  ring.position.set(lx, base + 6.0, lz);
+  ring.castShadow = true;
+  scene.add(ring);
+  const dish = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 6, 0, Math.PI * 2, 0, 0.8), new THREE.MeshStandardMaterial({ color: 0xe6e0d6, roughness: 0.5, side: THREE.DoubleSide }));
+  dish.position.set(lx + 1.2, base + 6.2, lz + 0.6);
+  dish.rotation.set(Math.PI, 0, 0.6);
+  scene.add(dish);
+  // Thruster pods at four corners of the cabin.
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    solidBox(scene, world, { x: lx + Math.sin(a) * 2.0, y: base + 4.0, z: lz + Math.cos(a) * 2.0 }, { x: 0.35, y: 0.35, z: 0.35 }, MATERIALS.darkMetal);
+  }
+  // Legs: a main strut and a brace to each round footpad, and a ladder on the front leg.
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const foot = new THREE.Vector3(lx + Math.sin(a) * 4.4, base + 0.15, lz + Math.cos(a) * 4.4);
+    const hip = new THREE.Vector3(lx + Math.sin(a) * 2.4, base + 3.3, lz + Math.cos(a) * 2.4);
+    const knee = new THREE.Vector3(lx + Math.sin(a) * 2.5, base + 1.9, lz + Math.cos(a) * 2.5);
+    solidTube(scene, world, foot, hip, 0.11, MATERIALS.foil);
+    solidTube(scene, world, foot.clone().setY(base + 0.4), knee, 0.06, MATERIALS.darkMetal);
+    const pad = solidCylinder(scene, world, foot.x, base, foot.z, 0.55, 0.12, MATERIALS.foil, 16);
+    pad.receiveShadow = true;
+  }
+}
+
+function buildSolarField(scene: THREE.Object3D, world: RAPIER.World) {
   const { xStart, rows, rowSpacing, halfLength } = SOLAR_FIELD;
   const tilt = THREE.MathUtils.degToRad(40);
-  const material = new THREE.MeshStandardMaterial({ map: solarCells(), roughness: 0.35, metalness: 0.4 });
+  // Glass-covered cells: glossy, so the rows mirror the bright ground and glint in the sun.
+  const material = new THREE.MeshStandardMaterial({ map: solarCells(), roughness: 0.12, metalness: 0.25 });
   material.map!.repeat.set(1, (halfLength * 2) / 4);
   for (let r = 0; r < rows; r++) {
     const x = xStart - r * rowSpacing;
@@ -94,7 +128,7 @@ function buildSolarField(scene: THREE.Scene, world: RAPIER.World) {
   }
 }
 
-function buildModules(scene: THREE.Scene, world: RAPIER.World) {
+function buildModules(scene: THREE.Object3D, world: RAPIER.World) {
   const { x: cx, z: cz } = MODULES_CENTER;
   const y = 4.5;
   // [center x, center z, runs along x?, length]
@@ -144,7 +178,7 @@ function buildModules(scene: THREE.Scene, world: RAPIER.World) {
 }
 
 // A lattice mast with a dish on top and a blinking warning light. Returns the light's material.
-function buildAntenna(scene: THREE.Scene, world: RAPIER.World, x: number, z: number, height: number) {
+function buildAntenna(scene: THREE.Object3D, world: RAPIER.World, x: number, z: number, height: number) {
   const half = 0.8;
   for (const [dx, dz] of [
     [-half, -half],
