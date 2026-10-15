@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { playHitSound, unlockAudio } from './audio/sfx';
+import { playHitSound, setMasterVolume, unlockAudio } from './audio/sfx';
 import { CONFIG } from './config';
 import { Input } from './core/input';
 import { createPhysicsWorld } from './core/physics';
@@ -8,6 +8,7 @@ import { createComposer } from './core/postprocessing';
 import { createScene } from './core/scene';
 import { submitHighScore } from './core/highScores';
 import { Session, type Mode } from './core/session';
+import { QUALITY_PRESETS, type Quality, settings } from './core/settings';
 import { CameraEffects } from './player/cameraEffects';
 import { Footsteps } from './player/footsteps';
 import { Oxygen } from './player/oxygen';
@@ -84,6 +85,34 @@ async function boot() {
     },
   });
 
+  // Settings: apply them now and whenever they change in the menu.
+  let baseFov = CONFIG.camera.fov;
+  let appliedQuality: Quality | null = null;
+  settings.watch((s) => {
+    look.sensitivity = s.sensitivity;
+    baseFov = s.fov;
+    setMasterVolume(s.volume);
+    if (s.quality !== appliedQuality) {
+      appliedQuality = s.quality;
+      const q = QUALITY_PRESETS[s.quality];
+      composer.setQuality({
+        pixelRatio: Math.min(window.devicePixelRatio, q.maxPixelRatio),
+        antialiasSamples: q.antialiasSamples,
+        ambientOcclusion: q.ambientOcclusion,
+      });
+      sun.setShadowMapSize(q.shadowMapSize);
+      rocks.setDrawScale(q.rockDistance);
+    }
+  });
+  // F3 shows the frame rate and movement numbers, any time.
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'F3') return;
+    e.preventDefault();
+    settings.set({ showStats: !settings.get().showStats });
+  });
+  // On the main menu the camera drifts slowly around the city behind the menu.
+  let menuOrbit = 0.6;
+
   // A warm light at the gun that flashes on each shot and lights up nearby walls.
   const muzzleLight = new THREE.PointLight(0xffb050, 0, 12);
   scene.add(muzzleLight);
@@ -141,6 +170,7 @@ async function boot() {
       if (input.wasPressed('BracketRight')) look.changeSensitivity(1);
       if (input.wasPressed('BracketLeft')) look.changeSensitivity(-1);
       if (input.wasPressed('BracketLeft', 'BracketRight')) {
+        settings.set({ sensitivity: look.sensitivity }); // remember it
         hud.showToast(`SENSITIVITY ${(look.sensitivity * 1000).toFixed(1)}`);
       }
 
@@ -161,12 +191,25 @@ async function boot() {
       if (session.update(dt)) endRun();
     }
 
-    // Place the camera: zoom for aiming, look direction plus recoil, then position.
-    camera.fov = THREE.MathUtils.lerp(CONFIG.camera.fov, CONFIG.rifle.adsFov, rifle.aimBlend);
-    camera.updateProjectionMatrix();
-    look.applyTo(camera, recoil.pitch, recoil.yaw);
-    cameraFx.update(dt, player, camera, look.yaw);
-    sun.update(player.feet);
+    const backdrop = session.state === 'menu';
+    if (backdrop) {
+      // Main menu: a slow orbit around the dome.
+      menuOrbit += dt * 0.025;
+      camera.fov = 50;
+      camera.updateProjectionMatrix();
+      camera.position.set(Math.sin(menuOrbit) * 178, 34, Math.cos(menuOrbit) * 178);
+      camera.lookAt(0, 16, 0);
+      sun.update(new THREE.Vector3(0, 0, 0));
+    } else {
+      // Place the camera: zoom for aiming (relative to your chosen field of view),
+      // look direction plus recoil, then position.
+      const aimedFov = baseFov * (CONFIG.rifle.adsFov / CONFIG.camera.fov);
+      camera.fov = THREE.MathUtils.lerp(baseFov, aimedFov, rifle.aimBlend);
+      camera.updateProjectionMatrix();
+      look.applyTo(camera, recoil.pitch, recoil.yaw);
+      cameraFx.update(dt, player, camera, look.yaw);
+      sun.update(player.feet);
+    }
     rocks.update(player.feet);
     sky.update(camera, playing ? dt : 0);
 
@@ -179,8 +222,10 @@ async function boot() {
     muzzleLight.intensity = Math.max(0, muzzleLight.intensity - 400 * dt);
 
     // Shake goes on last so it moves the view without moving the aim.
-    camera.rotation.x += recoil.shakePitch;
-    camera.rotation.y += recoil.shakeYaw;
+    if (!backdrop) {
+      camera.rotation.x += recoil.shakePitch;
+      camera.rotation.y += recoil.shakeYaw;
+    }
 
     camera.updateMatrixWorld();
     viewmodel.update(dt, rifle, mouse, {
@@ -195,13 +240,30 @@ async function boot() {
     });
     impacts.update(playing ? dt : 0, camera);
     if (playing) ejecta.update(dt);
-    const survived = session.mode === 'oxygenRun' ? session.elapsed : null;
-    hud.update(dt, player, rifle, scoring, oxygen, inside, session.timeLeft, survived, spread, camera.fov, CONFIG.rifle.magazineSize);
+    hud.update({
+      dt,
+      player,
+      rifle,
+      scoring,
+      oxygen,
+      inside,
+      mode: session.mode,
+      timeLeft: session.timeLeft,
+      survived: session.mode === 'oxygenRun' ? session.elapsed : null,
+      drainPerSecond: CONFIG.oxygen.drainRate * session.drainScale,
+      spread,
+      fov: camera.fov,
+      heading: (((-THREE.MathUtils.radToDeg(look.yaw)) % 360) + 360) % 360,
+      mouse,
+      showStats: settings.get().showStats,
+    });
 
-    // Draw the world (with bloom), then the gun on top of it.
+    // Draw the world (with bloom), then the gun on top of it (not behind the main menu).
     composer.render(dt);
-    renderer.clearDepth();
-    renderer.render(viewmodel.scene, viewmodel.camera);
+    if (!backdrop) {
+      renderer.clearDepth();
+      renderer.render(viewmodel.scene, viewmodel.camera);
+    }
     input.endFrame();
   }
 

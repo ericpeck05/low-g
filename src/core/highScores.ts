@@ -37,3 +37,12 @@ export function formatTime(seconds: number) {
   const s = Math.floor(seconds);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
+
+/** Forget every saved best result. */
+export function clearHighScores() {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    // Nothing saved to clear.
+  }
+}

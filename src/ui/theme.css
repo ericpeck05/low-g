@@ -1,0 +1,18 @@
+/* Shared look for the HUD and menus: black panels, white text, amber highlights.
+   No blue anywhere, including focus rings. */
+:root {
+  --white: #f5f0e8;
+  --dim: #bdb6aa;
+  --faint: #8a8379;
+  --amber: #ffa31a;
+  --orange: #ff5a1f;
+  --panel: rgba(0, 0, 0, 0.45);
+  --panel-solid: rgba(8, 8, 8, 0.86);
+  --line: rgba(245, 240, 232, 0.2);
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* A panel with one cut corner, like stamped metal plates. */
+.cut {
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}

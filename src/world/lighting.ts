@@ -20,6 +20,7 @@ export function directionFromAngles(elevationDegrees: number, bearingDegrees: nu
 export class Sun {
   private light: THREE.DirectionalLight;
   private direction = sunDirection();
+  private mapSize = CONFIG.sun.shadowMapSize;
 
   constructor(scene: THREE.Scene) {
     const { lighting, sun } = CONFIG;
@@ -45,10 +46,19 @@ export class Sun {
     scene.add(earthshine);
   }
 
+  /** Shadow detail (from the graphics quality setting). */
+  setShadowMapSize(size: number) {
+    if (size === this.mapSize) return;
+    this.mapSize = size;
+    this.light.shadow.mapSize.set(size, size);
+    this.light.shadow.map?.dispose();
+    this.light.shadow.map = null; // three.js makes a new one at the new size
+  }
+
   /** Keep the sharp-shadow area centered on the player. */
   update(focus: THREE.Vector3) {
     // Snap to whole shadow-map pixels, so shadow edges don't crawl as you walk.
-    const texel = (CONFIG.sun.shadowRange * 2) / CONFIG.sun.shadowMapSize;
+    const texel = (CONFIG.sun.shadowRange * 2) / this.mapSize;
     const center = new THREE.Vector3(
       Math.round(focus.x / texel) * texel,
       Math.round(focus.y / texel) * texel,

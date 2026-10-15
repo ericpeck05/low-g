@@ -65,6 +65,19 @@ export function createComposer(renderer: THREE.WebGLRenderer, scene: THREE.Scene
   return {
     composer,
     passes: { ao, bloom },
+    /** Change resolution, anti-aliasing and ambient occlusion (from the graphics quality setting). */
+    setQuality(options: { pixelRatio: number; antialiasSamples: number; ambientOcclusion: boolean }) {
+      renderer.setPixelRatio(options.pixelRatio);
+      for (const t of [composer.renderTarget1, composer.renderTarget2]) {
+        if (t.samples !== options.antialiasSamples) {
+          t.samples = options.antialiasSamples;
+          t.dispose(); // rebuilt with the new sample count next frame
+        }
+      }
+      composer.setPixelRatio(options.pixelRatio);
+      composer.setSize(window.innerWidth, window.innerHeight);
+      ao.enabled = options.ambientOcclusion;
+    },
     render: (dt: number) => composer.render(dt),
     /** Leave these out of ambient occlusion (glass, particles, sky). */
     excludeFromAO: (...objects: THREE.Object3D[]) => aoHidden.push(...objects),

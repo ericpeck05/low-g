@@ -1,0 +1,108 @@
+/* The in-game HUD, styled as readouts projected on a helmet visor. */
+.hud { position: fixed; inset: 0; pointer-events: none; color: var(--white); font-family: var(--mono);
+       font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase;
+       text-shadow: 0 0 3px rgba(0, 0, 0, 0.9), 0 0 1px #000; overflow: hidden; }
+
+/* The visor itself: darker toward the rim, a faint sheen on the glass, a thin rim highlight. */
+.visor { position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 78% 88% at 50% 47%, transparent 66%, rgba(0, 0, 0, 0.32) 84%, rgba(0, 0, 0, 0.82) 100%),
+    linear-gradient(118deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 24%),
+    linear-gradient(300deg, rgba(255, 210, 160, 0.025) 0%, rgba(255, 210, 160, 0) 30%); }
+.visor::before { content: ''; position: absolute; inset: -4% -2.5%; border-radius: 50% / 50%;
+  box-shadow: inset 0 0 0 1px rgba(255, 210, 160, 0.07), inset 0 0 90px rgba(0, 0, 0, 0.55); }
+
+/* Everything printed on the visor moves together, a little behind your head. */
+.hud-sway { position: absolute; inset: 0; will-change: transform; }
+
+/* Side columns are tilted in 3D so they read as curving around the visor. */
+.hud-left, .hud-right { position: absolute; top: 34px; bottom: 34px; width: 280px;
+  display: flex; flex-direction: column; justify-content: space-between; }
+.hud-left { left: 46px; transform-origin: left center; transform: perspective(900px) rotateY(16deg); }
+.hud-right { right: 46px; align-items: flex-end; text-align: right; transform-origin: right center;
+  transform: perspective(900px) rotateY(-16deg); }
+
+.hud .panel { background: var(--panel); border: 1px solid var(--line); padding: 10px 14px 11px; min-width: 220px; }
+.hud .label { color: var(--dim); font-size: 11px; letter-spacing: 0.14em; }
+.hud .value { font-size: 30px; line-height: 1.05; letter-spacing: 0.02em; }
+.hud .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.hud .sub { color: var(--dim); font-size: 11px; margin-top: 6px; letter-spacing: 0.1em; }
+.hud .amber { color: var(--amber); }
+.hud .stack { display: flex; flex-direction: column; gap: 10px; }
+
+/* Segmented bars (oxygen, fuel) and the round counter. */
+.bar { display: flex; gap: 2px; height: 9px; margin-top: 7px; }
+.bar i { flex: 1; background: rgba(245, 240, 232, 0.12); }
+.bar i.on { background: var(--white); }
+.bar.amber i.on { background: var(--amber); }
+.bar.warn i.on { background: var(--orange); }
+.pips { display: flex; flex-wrap: wrap; gap: 2px; width: 196px; margin-top: 8px; justify-content: flex-end; }
+.pips i { width: 4px; height: 11px; background: var(--white); }
+.pips i.spent { background: rgba(245, 240, 232, 0.14); }
+
+/* Status: where you are and what's outside your suit. */
+.status .dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; background: var(--white); }
+.status.vacuum .dot { background: var(--amber); }
+.status .place { font-size: 15px; }
+
+/* Oxygen: blinks when low. */
+.oxygen.low .value, .oxygen.low .sub { color: var(--orange); }
+.oxygen.low .value { animation: hud-blink 0.6s steps(2) infinite; }
+.fuel.thrust .label { color: var(--amber); }
+@keyframes hud-blink { 50% { opacity: 0.3; } }
+
+/* Score: combo meter fills toward the next multiplier. */
+.score .combo { color: var(--amber); font-size: 15px; margin-top: 6px; min-height: 18px; }
+.score .meter { height: 3px; background: rgba(245, 240, 232, 0.12); margin-top: 5px; }
+.score .meter div { height: 100%; width: 0; background: var(--amber); }
+
+/* Ammo */
+.ammo .value { font-size: 40px; }
+.ammo .value small { font-size: 16px; color: var(--dim); }
+.ammo.low .value { color: var(--amber); }
+.ammo.empty .value { color: var(--orange); }
+.ammo .state { color: var(--amber); height: 14px; margin-top: 6px; font-size: 11px; letter-spacing: 0.16em; }
+.ammo .reload { height: 3px; width: 196px; margin-left: auto; margin-top: 4px; background: rgba(245, 240, 232, 0.12); }
+.ammo .reload div { height: 100%; width: 0; background: var(--amber); }
+
+/* Top center: compass and the clock. */
+.hud-top { position: absolute; top: 18px; left: 50%; transform: translateX(-50%) perspective(900px) rotateX(-10deg);
+  transform-origin: top center; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.compass { position: relative; width: 380px; height: 30px; overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); }
+.compass .strip { position: absolute; top: 0; left: 0; height: 100%; will-change: transform; }
+.compass .tick { position: absolute; bottom: 0; width: 1px; height: 6px; background: var(--dim); }
+.compass .tick.major { height: 11px; background: var(--white); }
+.compass .mark { position: absolute; top: 0; transform: translateX(-50%); font-size: 11px; color: var(--dim); }
+.compass .mark.cardinal { color: var(--white); font-size: 13px; }
+.compass .needle { position: absolute; left: 50%; bottom: 0; width: 2px; height: 16px; margin-left: -1px; background: var(--amber); }
+.timer { font-size: 30px; letter-spacing: 0.04em; display: none; }
+.timer.urgent { color: var(--amber); }
+.timer-label { color: var(--dim); font-size: 11px; letter-spacing: 0.16em; display: none; }
+
+/* Center: crosshair, hit marker, floating points, warnings. Not tilted: they line up with your aim. */
+.crosshair { position: absolute; left: 50%; top: 50%; transition: opacity 0.1s; }
+.crosshair div { position: absolute; background: var(--white); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 3px rgba(0, 0, 0, 0.6); }
+.crosshair .h { width: 10px; height: 2px; margin-top: -1px; }
+.crosshair .v { width: 2px; height: 10px; margin-left: -1px; }
+.crosshair .dot { width: 2px; height: 2px; margin: -1px 0 0 -1px; }
+.hitmarker { position: absolute; left: 50%; top: 50%; opacity: 0; }
+.hitmarker div { position: absolute; width: 12px; height: 2px; margin: -1px 0 0 -6px; background: var(--white); box-shadow: 0 0 2px #000; }
+.hitmarker.bullseye div { background: var(--amber); }
+.popups { position: absolute; left: 50%; top: 50%; }
+.popup { position: absolute; left: 0; top: -60px; transform: translateX(-50%); white-space: nowrap;
+  font-size: 15px; animation: hud-rise 0.9s ease-out forwards; }
+.popup.bullseye { color: var(--amber); font-size: 18px; }
+@keyframes hud-rise { from { transform: translate(-50%, 0); opacity: 1; } to { transform: translate(-50%, -40px); opacity: 0; } }
+.warning { position: absolute; left: 50%; top: 61%; transform: translateX(-50%); color: var(--orange);
+  font-size: 16px; letter-spacing: 0.3em; display: none; animation: hud-blink 0.8s steps(2) infinite; }
+.toast { position: absolute; left: 50%; top: 38%; transform: translateX(-50%); transition: opacity 0.3s; opacity: 0;
+  background: var(--panel); border: 1px solid var(--line); padding: 8px 14px; }
+
+/* Edges darken and warm up as the air runs out. */
+.hypoxia { position: absolute; inset: 0; opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 35%, rgba(120, 30, 0, 0.88) 100%); }
+
+/* F3: frame rate and movement numbers. */
+.stats { position: absolute; left: 14px; top: 10px; white-space: pre; color: var(--dim); font-size: 11px;
+  text-transform: none; display: none; background: rgba(0, 0, 0, 0.5); padding: 6px 8px; }

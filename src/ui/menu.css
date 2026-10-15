@@ -1,0 +1,55 @@
+/* Menus: black panels over the live scene, white text, amber highlights. */
+.menu { position: fixed; inset: 0; display: flex; color: var(--white); font-family: var(--mono);
+  font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
+.menu.side { background: linear-gradient(90deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.72) 34%, rgba(0, 0, 0, 0.05) 70%); }
+.menu.center { background: rgba(0, 0, 0, 0.66); align-items: center; justify-content: center; }
+.menu .column { width: min(440px, 100%); padding: 64px 0 48px 72px; display: flex; flex-direction: column; gap: 22px; }
+.menu.center .column { padding: 0 24px; align-items: stretch; width: min(560px, 100%); }
+.menu h1 { margin: 0; font-size: 64px; letter-spacing: 0.28em; color: var(--amber); font-weight: 700; }
+.menu h2 { margin: 0; font-size: 24px; letter-spacing: 0.22em; font-weight: 600; }
+.menu .tagline { color: var(--dim); letter-spacing: 0.24em; margin-top: -12px; }
+.menu .hint { color: var(--faint); font-size: 11px; letter-spacing: 0.14em; line-height: 1.7; }
+
+.menu .buttons { display: flex; flex-direction: column; gap: 8px; }
+.menu .buttons.row { flex-direction: row; flex-wrap: wrap; }
+.menu button { font: inherit; letter-spacing: 0.16em; color: var(--white); background: var(--panel-solid);
+  border: 1px solid var(--line); padding: 13px 18px; text-align: left; cursor: pointer; text-transform: uppercase;
+  display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.menu button::after { content: '>'; color: var(--faint); }
+.menu button.plain::after { content: ''; }
+.menu button:hover, .menu button:focus-visible { border-color: var(--amber); color: var(--amber); outline: none; }
+.menu button:hover::after, .menu button:focus-visible::after { color: var(--amber); }
+.menu button.primary { border-color: var(--amber); }
+.menu button.danger { color: var(--orange); }
+.menu button small { color: var(--dim); letter-spacing: 0.1em; text-transform: none; font-size: 11px; }
+
+/* Mode cards */
+.menu .mode { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.menu .mode .title { font-size: 16px; letter-spacing: 0.2em; }
+.menu .mode .blurb { color: var(--dim); text-transform: none; letter-spacing: 0.04em; font-size: 12px; }
+.menu .mode .best { color: var(--amber); font-size: 11px; letter-spacing: 0.14em; }
+.menu .mode::after { display: none; }
+
+/* Settings rows */
+.menu .setting { background: var(--panel-solid); border: 1px solid var(--line); padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+.menu .setting .top { display: flex; justify-content: space-between; }
+.menu .setting .now { color: var(--amber); }
+.menu .setting .note { color: var(--faint); font-size: 11px; text-transform: none; letter-spacing: 0.04em; }
+.menu input[type='range'] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; cursor: pointer; accent-color: var(--amber); }
+.menu input[type='range']::-webkit-slider-runnable-track { height: 3px; background: rgba(245, 240, 232, 0.25); }
+.menu input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 16px; margin-top: -6.5px; background: var(--amber); border: none; }
+.menu input[type='range']::-moz-range-track { height: 3px; background: rgba(245, 240, 232, 0.25); }
+.menu input[type='range']::-moz-range-thumb { width: 12px; height: 16px; background: var(--amber); border: none; border-radius: 0; }
+.menu input[type='range']:focus-visible { outline: 1px solid var(--amber); }
+.menu .choices { display: flex; gap: 6px; }
+.menu .choices button { flex: 1; justify-content: center; padding: 9px 6px; }
+.menu .choices button::after { content: ''; }
+.menu .choices button.on { border-color: var(--amber); color: var(--amber); }
+
+/* Tables (controls, scores, results) */
+.menu table { border-collapse: collapse; width: 100%; background: var(--panel-solid); border: 1px solid var(--line); }
+.menu td { padding: 8px 14px; border-bottom: 1px solid rgba(245, 240, 232, 0.08); }
+.menu td:first-child { color: var(--amber); width: 46%; }
+.menu td.big { font-size: 18px; text-align: right; }
+.menu .new-best { color: var(--amber); letter-spacing: 0.3em; }
+.menu .scroll { max-height: calc(100vh - 220px); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }

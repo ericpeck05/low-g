@@ -84,14 +84,20 @@ export function scatterRocks(scene: THREE.Scene, world: RAPIER.World) {
   scene.add(rocks);
 
   const lastUpdate = new THREE.Vector3(Infinity, 0, Infinity);
+  let distanceScale = 1;
   return {
+    /** Draw small rocks further out (above 1) or less far (below 1), from the quality setting. */
+    setDrawScale(scale: number) {
+      distanceScale = scale;
+      lastUpdate.set(Infinity, 0, Infinity); // recheck on the next update
+    },
     /** Hide small rocks that are too far away to see (rechecked every 15 m you move). */
     update(player: THREE.Vector3) {
       if (Math.hypot(player.x - lastUpdate.x, player.z - lastUpdate.z) < 15) return;
       lastUpdate.copy(player);
       for (const rock of placed) {
         if (rock.drawDistance === Infinity) continue;
-        rocks.setVisibleAt(rock.id, Math.hypot(rock.x - player.x, rock.z - player.z) < rock.drawDistance);
+        rocks.setVisibleAt(rock.id, Math.hypot(rock.x - player.x, rock.z - player.z) < rock.drawDistance * distanceScale);
       }
     },
   };

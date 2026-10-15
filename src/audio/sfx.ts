@@ -2,11 +2,24 @@
 // Phase 8 replaces this with the full sound manager (vacuum muffling and so on).
 
 let context: AudioContext | null = null;
+let master: GainNode | null = null;
+let volume = 0.8;
 
 /** Browsers only allow audio after a click, so call this from a click handler. */
 export function unlockAudio() {
-  context ??= new AudioContext();
+  if (!context) {
+    context = new AudioContext();
+    master = context.createGain();
+    master.gain.value = volume;
+    master.connect(context.destination);
+  }
   if (context.state === 'suspended') void context.resume();
+}
+
+/** Overall loudness, 0 to 1. */
+export function setMasterVolume(value: number) {
+  volume = value;
+  if (master) master.gain.value = value;
 }
 
 /** A short "tick" confirming a hit. Bullseyes get a brighter two-note chirp. */
@@ -17,7 +30,7 @@ export function playHitSound(bullseye: boolean) {
 }
 
 function beep(frequency: number, duration: number, volume: number, delay = 0) {
-  if (!context) return;
+  if (!context || !master) return;
   const start = context.currentTime + delay;
   const osc = context.createOscillator();
   const gain = context.createGain();
@@ -27,7 +40,7 @@ function beep(frequency: number, duration: number, volume: number, delay = 0) {
   gain.gain.setValueAtTime(0, start);
   gain.gain.linearRampToValueAtTime(volume, start + 0.005);
   gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-  osc.connect(gain).connect(context.destination);
+  osc.connect(gain).connect(master);
   osc.start(start);
   osc.stop(start + duration + 0.02);
 }
