@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { playHitSound, setMasterVolume, unlockAudio } from './audio/sfx';
+import { GameAudio } from './audio/gameAudio';
 import { CONFIG } from './config';
 import { Input } from './core/input';
 import { createPhysicsWorld } from './core/physics';
@@ -74,6 +74,8 @@ async function boot() {
   const oxygen = new Oxygen();
   let inside = true; // breathing dome air (inside the dome or an airlock chamber)
   const hud = new Hud();
+  const audio = new GameAudio();
+  let lastReloadProgress = 0; // for timing reload sounds to the animation
   const menu = new Menu({
     start: startRun,
     resume: () => lockMouse(),
@@ -91,7 +93,7 @@ async function boot() {
   settings.watch((s) => {
     look.sensitivity = s.sensitivity;
     baseFov = s.fov;
-    setMasterVolume(s.volume);
+    audio.setVolume(s.volume);
     if (s.quality !== appliedQuality) {
       appliedQuality = s.quality;
       const q = QUALITY_PRESETS[s.quality];
@@ -118,7 +120,7 @@ async function boot() {
   scene.add(muzzleLight);
 
   async function lockMouse() {
-    unlockAudio(); // browsers only allow sound after a click, and this runs from one
+    audio.unlock(); // browsers only allow sound after a click, and this runs from one
     if (await input.requestLock()) return;
     // The browser said no (it can refuse right after Esc). Show the pause screen
     // so there's a button to try again instead of a frozen game.
@@ -175,10 +177,15 @@ async function boot() {
       }
 
       player.update(dt, input, look.yaw, rifle.aiming);
-      footsteps.update(dt, player, look.yaw);
+      const step = footsteps.update(dt, player, look.yaw);
+      if (step) audio.footstep(step.hard, step.landing, step.strength);
       // These move colliders (targets, airlock doors), so they go before the physics step.
       targets.update(dt, player.feet);
-      city.update(dt, player.feet);
+      for (const event of city.update(dt, player.feet)) {
+        if (event.kind === 'doorMoving') audio.doorMoving(event.position);
+        else if (event.kind === 'doorStopped') audio.doorStopped(event.position);
+        else audio.airHiss(event.position);
+      }
       world.timestep = dt;
       world.step();
       recoil.update(dt);
@@ -218,6 +225,7 @@ async function boot() {
       // No shooting until the gun is back up from a sprint.
       const shots = rifle.update(dt, input, viewmodel.sprintBlend < 0.3);
       for (let i = 0; i < shots; i++) fireShot(spread);
+      reloadSounds();
     }
     muzzleLight.intensity = Math.max(0, muzzleLight.intensity - 400 * dt);
 
@@ -239,7 +247,23 @@ async function boot() {
       inside,
     });
     impacts.update(playing ? dt : 0, camera);
-    if (playing) ejecta.update(dt);
+    if (playing) {
+      ejecta.update(dt);
+      for (const bounce of ejecta.takeBounces()) {
+        if (bounce.magazine) audio.impact(bounce.position);
+        else audio.casing(bounce.position, bounce.loudness);
+      }
+    }
+    audio.update({
+      dt,
+      camera,
+      inside,
+      playing,
+      oxygenLevel: oxygen.level,
+      oxygenLow: oxygen.low,
+      thrusting: player.jetpack.thrusting,
+      exertion: player.jetpack.thrusting || player.sprinting ? 1 : 0,
+    });
     hud.update({
       dt,
       player,
@@ -273,6 +297,9 @@ async function boot() {
     const hit = castShot(world, camera.position, direction, CONFIG.rifle.range, player.collider);
     const targetHit = hit ? targets.tryHit(hit.collider, hit.point, direction) : null;
     if (hit) impacts.spawn(hit.point, hit.normal);
+    audio.gunshot();
+    if (hit && targetHit) audio.targetBreak(hit.point, targetHit.label === 'DRONE');
+    else if (hit) audio.impact(hit.point);
 
     const earned = scoring.recordShot(targetHit);
     if (targetHit) {
@@ -280,7 +307,7 @@ async function boot() {
       const bonus = inside ? 0 : oxygenReward(targetHit);
       oxygen.reward(bonus);
       hud.showHit(earned, targetHit.label, targetHit.bullseye, scoring.multiplier, bonus);
-      playHitSound(targetHit.bullseye);
+      audio.hitConfirm(targetHit.bullseye);
     }
 
     recoil.kick(rifle.aimBlend);
@@ -294,6 +321,20 @@ async function boot() {
     const out = viewmodel.ejectionDirection().transformDirection(camera.matrixWorld);
     const speed = CONFIG.viewmodel.casingSpeed * (0.85 + Math.random() * 0.3);
     ejecta.casing(port, out.multiplyScalar(speed).add(player.velocity));
+  }
+
+  // Reload sounds, timed to the animation: magazine out, new one in, bolt slams home.
+  function reloadSounds() {
+    if (!rifle.reloading) {
+      lastReloadProgress = 0; // ready for the next reload
+      return;
+    }
+    const p = rifle.reloadProgress;
+    const crossed = (mark: number) => lastReloadProgress < mark && p >= mark;
+    if (crossed(0.1)) audio.magazineRelease();
+    if (crossed(0.58)) audio.magazineInsert();
+    if (crossed(0.69)) audio.boltRelease();
+    lastReloadProgress = p;
   }
 
   // Is the player's head in sunlight? (The dome glass lets the sun through.)
@@ -344,7 +385,7 @@ async function boot() {
   // lowg.tick(1 / 60) advances one frame by hand, which is handy for testing.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      lowg: { renderer, scene, composer, ejecta, input, look, player, camera, world, city, oxygen, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, tick, startRun },
+      lowg: { renderer, scene, composer, audio, ejecta, input, look, player, camera, world, city, oxygen, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, tick, startRun },
     });
   }
 }

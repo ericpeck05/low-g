@@ -5,6 +5,12 @@ import { MATERIALS, lightStrip, solidBox } from './kit';
 
 type Side = 'inside' | 'outside';
 
+/** Something the sound system should hear: a door starting or stopping, or air rushing. */
+export interface AirlockEvent {
+  kind: 'doorMoving' | 'doorStopped' | 'hiss';
+  position: THREE.Vector3;
+}
+
 const PASSAGE_HALF_WIDTH = 2.5; // the walkway is 5 m wide
 const PASSAGE_HEIGHT = 4.5;
 const HOUSING_HALF_WIDTH = 6.8; // wide enough to cover the gap in the dome glass
@@ -15,6 +21,7 @@ const DOOR_THICKNESS = 0.4;
 class Door {
   open = 0; // 0 = shut, 1 = fully open
   target = 0;
+  moving = false;
   private halves: { mesh: THREE.Mesh; collider: RAPIER.Collider; side: number }[] = [];
 
   constructor(
@@ -51,8 +58,18 @@ class Door {
     const step = (CONFIG.city.airlockDoorSpeed / PASSAGE_HALF_WIDTH) * dt;
     // Never close onto someone standing in the doorway.
     const target = blocked ? Math.max(this.target, this.open) : this.target;
+    const before = this.open;
     this.open = target > this.open ? Math.min(target, this.open + step) : Math.max(target, this.open - step);
     this.apply();
+    // Returns 'start' or 'stop' when the door begins or ends a move.
+    const nowMoving = this.open !== before;
+    const change = nowMoving === this.moving ? null : nowMoving ? 'start' : 'stop';
+    this.moving = nowMoving;
+    return change;
+  }
+
+  get center() {
+    return this.place(this.u, 0, PASSAGE_HEIGHT / 2);
   }
 
   private apply() {
@@ -77,6 +94,7 @@ export class Airlock {
   private radial: THREE.Vector3; // points out of the dome
   private lateral: THREE.Vector3; // sideways across the tunnel
   private lastSide: Side = 'inside';
+  private events: AirlockEvent[] = [];
   private enteredFrom: Side | null = null;
   private cycleTimer = 0;
   private lamps: THREE.Mesh[] = [];
@@ -175,8 +193,14 @@ export class Airlock {
     }
 
     const inDoorway = (door: Door) => Math.abs(u - door.u) < 0.9 && Math.abs(v) < PASSAGE_HALF_WIDTH;
-    this.inner.update(dt, inDoorway(this.inner));
-    this.outer.update(dt, inDoorway(this.outer));
+    for (const door of [this.inner, this.outer]) {
+      const change = door.update(dt, inDoorway(door));
+      if (change) this.events.push({ kind: change === 'start' ? 'doorMoving' : 'doorStopped', position: door.center });
+    }
+    // Air rushes in (or out) as the chamber starts to cycle.
+    if (inChamber && this.cycleTimer > 0 && this.cycleTimer <= dt) {
+      this.events.push({ kind: 'hiss', position: this.place((this.inner.u + this.outer.u) / 2, 0, 2) });
+    }
 
     // Lamps: white when that door is open, amber otherwise. The chamber strip pulses while cycling.
     this.lamps.forEach((lamp, i) => {
@@ -187,6 +211,13 @@ export class Airlock {
     (this.cycleStrip.material as THREE.MeshStandardMaterial).emissiveIntensity = cycling
       ? 1.5 + Math.sin(this.time * 18) * 1.5
       : 0.2;
+  }
+
+  /** Events since the last call (and forget them). */
+  takeEvents() {
+    const events = this.events;
+    this.events = [];
+    return events;
   }
 
   private local(p: THREE.Vector3) {

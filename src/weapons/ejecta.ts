@@ -21,6 +21,13 @@ interface Piece {
   resting: boolean;
 }
 
+/** A casing or magazine hitting something, for its sound. */
+export interface BounceEvent {
+  magazine: boolean;
+  position: THREE.Vector3;
+  loudness: number; // 0 to 1, from how fast it hit
+}
+
 const MAX_CASINGS = 90;
 const MAX_MAGAZINES = 6;
 const BRASS = new THREE.MeshStandardMaterial({ color: 0xc69b4c, metalness: 1, roughness: 0.28 });
@@ -30,6 +37,7 @@ export class Ejecta {
   private magazines: Piece[] = [];
   private casingMesh: THREE.InstancedMesh;
   private ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
+  private bounces: BounceEvent[] = [];
 
   constructor(
     private scene: THREE.Scene,
@@ -93,6 +101,13 @@ export class Ejecta {
     this.casingMesh.instanceMatrix.needsUpdate = true;
   }
 
+  /** Bounces since the last call (and forget them). */
+  takeBounces() {
+    const bounces = this.bounces;
+    this.bounces = [];
+    return bounces;
+  }
+
   clear() {
     for (const m of this.magazines) this.scene.remove(m.object!);
     this.magazines = [];
@@ -128,6 +143,8 @@ export class Ejecta {
     if (p.floorCheck <= 0) this.findFloor(p);
     if (p.position.y < p.floor + p.radius && p.velocity.y < 0) {
       p.position.y = p.floor + p.radius;
+      const loudness = Math.min(1, -p.velocity.y / 2.5);
+      if (loudness > 0.08) this.bounces.push({ magazine: p.object !== null, position: p.position.clone(), loudness });
       // Bounce: lose most of the speed, keep tumbling a little less each time.
       p.velocity.y *= -0.32;
       p.velocity.x *= 0.55;

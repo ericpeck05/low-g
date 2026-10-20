@@ -1,0 +1,287 @@
+import { seededRandom } from '../world/noise';
+
+// Sound effects made from scratch: filtered noise, falling tones and short metallic
+// "pings", mixed into audio buffers once at startup. No sound files needed.
+
+type Fill = (out: Float32Array, rate: number, random: () => number) => void;
+
+function make(context: BaseAudioContext, seconds: number, seed: number, fill: Fill, peak = 0.9) {
+  const rate = context.sampleRate;
+  const buffer = context.createBuffer(1, Math.ceil(seconds * rate), rate);
+  const data = buffer.getChannelData(0);
+  fill(data, rate, seededRandom(seed));
+  // Fade the last few milliseconds so nothing clicks when it ends, then set the loudness.
+  const fade = Math.min(data.length, Math.floor(rate * 0.005));
+  for (let i = 0; i < fade; i++) data[data.length - 1 - i] *= i / fade;
+  let max = 0;
+  for (const v of data) max = Math.max(max, Math.abs(v));
+  if (max > 0) for (let i = 0; i < data.length; i++) data[i] *= peak / max;
+  return buffer;
+}
+
+// ---- Building blocks ----
+
+function noise(length: number, random: () => number) {
+  const out = new Float32Array(length);
+  for (let i = 0; i < length; i++) out[i] = random() * 2 - 1;
+  return out;
+}
+
+/** A standard two-pole filter (the same kind as Web Audio's BiquadFilter). */
+function filter(data: Float32Array, rate: number, type: 'lowpass' | 'highpass' | 'bandpass', freq: number, q = 0.707) {
+  const w = (2 * Math.PI * freq) / rate;
+  const alpha = Math.sin(w) / (2 * q);
+  const cos = Math.cos(w);
+  let b0, b1, b2;
+  if (type === 'lowpass') [b0, b1, b2] = [(1 - cos) / 2, 1 - cos, (1 - cos) / 2];
+  else if (type === 'highpass') [b0, b1, b2] = [(1 + cos) / 2, -(1 + cos), (1 + cos) / 2];
+  else [b0, b1, b2] = [alpha, 0, -alpha];
+  const a0 = 1 + alpha;
+  const a1 = -2 * cos;
+  const a2 = 1 - alpha;
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < data.length; i++) {
+    const x = data[i];
+    const y = (b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0;
+    x2 = x1; x1 = x; y2 = y1; y1 = y;
+    data[i] = y;
+  }
+  return data;
+}
+
+/** Add `source` into `out` from `startSeconds`, shaped by a quick attack and exponential decay. */
+function add(out: Float32Array, rate: number, source: Float32Array, startSeconds: number, gain: number, decay: number, attack = 0.001) {
+  const start = Math.floor(startSeconds * rate);
+  for (let i = 0; i < source.length && start + i < out.length; i++) {
+    const t = i / rate;
+    const env = Math.min(1, t / attack) * Math.exp(-t / decay);
+    out[start + i] += source[i] * env * gain;
+  }
+}
+
+/** A struck-metal ring: a few tones that die away. */
+function ping(out: Float32Array, rate: number, startSeconds: number, freqs: number[], decay: number, gain: number) {
+  const start = Math.floor(startSeconds * rate);
+  const length = Math.floor(decay * 6 * rate);
+  for (let i = 0; i < length && start + i < out.length; i++) {
+    const t = i / rate;
+    let v = 0;
+    freqs.forEach((f, k) => (v += Math.sin(2 * Math.PI * f * t) * Math.exp(-t / (decay / (1 + k * 0.5)))));
+    out[start + i] += (v / freqs.length) * gain * Math.min(1, t / 0.0005);
+  }
+}
+
+/** A low thump: a tone that drops in pitch as it fades (a kick-drum shape). */
+function thump(out: Float32Array, rate: number, startSeconds: number, from: number, to: number, decay: number, gain: number) {
+  const start = Math.floor(startSeconds * rate);
+  let phase = 0;
+  for (let i = 0; start + i < out.length && i < decay * 8 * rate; i++) {
+    const t = i / rate;
+    const f = to + (from - to) * Math.exp(-t / (decay * 0.3));
+    phase += (2 * Math.PI * f) / rate;
+    out[start + i] += Math.sin(phase) * Math.exp(-t / decay) * gain * Math.min(1, t / 0.002);
+  }
+}
+
+const seconds = (s: number, rate: number) => Math.floor(s * rate);
+
+// ---- The sounds ----
+
+/** Rifle shot: a sharp crack, the blast's body, a deep thump, then the bolt cycling. */
+export function gunshot(c: BaseAudioContext, seed: number) {
+  return make(c, 0.7, seed, (out, rate, random) => {
+    add(out, rate, filter(noise(seconds(0.1, rate), random), rate, 'highpass', 1800), 0, 1.0, 0.005);
+    add(out, rate, filter(filter(noise(seconds(0.5, rate), random), rate, 'lowpass', 1100), rate, 'lowpass', 900), 0, 1.3, 0.05);
+    thump(out, rate, 0, 140, 42, 0.09, 1.1);
+    const bolt = 0.032 + random() * 0.008;
+    add(out, rate, filter(noise(seconds(0.02, rate), random), rate, 'bandpass', 3500, 2), bolt, 0.25, 0.003);
+    ping(out, rate, bolt, [2100 + random() * 200, 3400, 5300], 0.012, 0.18);
+    ping(out, rate, bolt + 0.045, [1800, 3000], 0.01, 0.12); // bolt slamming home
+  });
+}
+
+/** Reload mechanics. */
+export function magazineRelease(c: BaseAudioContext) {
+  return make(c, 0.25, 11, (out, rate, random) => {
+    add(out, rate, filter(noise(seconds(0.02, rate), random), rate, 'highpass', 2500), 0, 0.5, 0.002);
+    ping(out, rate, 0, [1700, 3100], 0.018, 0.6);
+    add(out, rate, filter(noise(seconds(0.1, rate), random), rate, 'lowpass', 900), 0.03, 0.4, 0.03); // magazine sliding out
+  }, 0.6);
+}
+
+export function magazineInsert(c: BaseAudioContext) {
+  return make(c, 0.35, 12, (out, rate, random) => {
+    add(out, rate, filter(noise(seconds(0.06, rate), random), rate, 'bandpass', 1200, 1.2), 0, 0.9, 0.015);
+    thump(out, rate, 0, 220, 110, 0.03, 0.6);
+    ping(out, rate, 0.004, [2500, 4200], 0.025, 0.5);
+    add(out, rate, filter(noise(seconds(0.02, rate), random), rate, 'highpass', 3000), 0.07, 0.6, 0.003); // catch clicks in
+    ping(out, rate, 0.07, [3000, 4900], 0.012, 0.35);
+  }, 0.75);
+}
+
+export function boltRelease(c: BaseAudioContext) {
+  return make(c, 0.5, 13, (out, rate, random) => {
+    add(out, rate, filter(noise(seconds(0.03, rate), random), rate, 'highpass', 1500), 0, 1, 0.004);
+    thump(out, rate, 0, 180, 80, 0.04, 0.7);
+    ping(out, rate, 0, [1500, 2900, 4700], 0.07, 0.45); // buffer spring ringing
+  }, 0.85);
+}
+
+/** A spent casing landing: a few bright tinks as it bounces. */
+export function casing(c: BaseAudioContext, seed: number) {
+  return make(c, 0.5, 100 + seed, (out, rate, random) => {
+    const base = 3200 + random() * 1800;
+    let t = 0;
+    let level = 1;
+    for (let i = 0; i < 4; i++) {
+      ping(out, rate, t, [base, base * 1.48, base * 2.1], 0.03 + random() * 0.03, level);
+      t += 0.09 * Math.pow(0.6, i);
+      level *= 0.45;
+    }
+  }, 0.45);
+}
+
+/** A footstep. On the dusty surface: a soft crunch. On hard floors: a heel click too. */
+export function footstep(c: BaseAudioContext, seed: number, hard: boolean, landing = false) {
+  return make(c, landing ? 0.45 : 0.25, 200 + seed + (hard ? 50 : 0) + (landing ? 99 : 0), (out, rate, random) => {
+    const length = seconds(landing ? 0.35 : 0.18, rate);
+    // Crunch: low noise broken into grains, like dust and grit compacting.
+    const crunch = filter(noise(length, random), rate, 'lowpass', hard ? 1400 : 520);
+    let grain = 1;
+    for (let i = 0; i < crunch.length; i++) {
+      if (i % Math.floor(rate * 0.0015) === 0) grain = 0.25 + random() * 0.75;
+      crunch[i] *= grain;
+    }
+    add(out, rate, crunch, 0, hard ? 0.6 : 1, landing ? 0.11 : 0.05, 0.006);
+    thump(out, rate, 0, landing ? 120 : 140, landing ? 45 : 65, landing ? 0.09 : 0.035, landing ? 1.2 : 0.6);
+    if (hard) {
+      add(out, rate, filter(noise(seconds(0.01, rate), random), rate, 'bandpass', 2600, 1.5), 0, 0.5, 0.004);
+      ping(out, rate, 0, [700 + random() * 100, 1500], 0.02, 0.15);
+    }
+  }, landing ? 0.9 : 0.7);
+}
+
+/** A target shattering: a crack and a spray of small pieces. */
+export function targetBreak(c: BaseAudioContext, seed: number) {
+  return make(c, 0.9, 300 + seed, (out, rate, random) => {
+    add(out, rate, filter(noise(seconds(0.08, rate), random), rate, 'bandpass', 2200, 1), 0, 1, 0.02);
+    add(out, rate, filter(noise(seconds(0.3, rate), random), rate, 'lowpass', 3000), 0.005, 0.45, 0.07);
+    for (let i = 0; i < 18; i++) {
+      const at = Math.pow(random(), 2) * 0.4;
+      ping(out, rate, at, [2500 + random() * 4500], 0.02 + random() * 0.04, 0.05 + random() * 0.15);
+    }
+  }, 0.85);
+}
+
+/** A drone breaking: an electrical pop and buzz, a fizz, and parts clattering. */
+export function droneBreak(c: BaseAudioContext, seed: number) {
+  return make(c, 1.0, 400 + seed, (out, rate, random) => {
+    add(out, rate, noise(seconds(0.05, rate), random), 0, 1, 0.01);
+    const buzz = new Float32Array(seconds(0.5, rate));
+    for (let i = 0; i < buzz.length; i++) buzz[i] = ((i * 140) / rate) % 1 > 0.5 ? 0.6 : -0.6; // square-ish hum
+    add(out, rate, filter(buzz, rate, 'lowpass', 1500), 0, 0.5, 0.12);
+    add(out, rate, filter(noise(seconds(0.6, rate), random), rate, 'highpass', 3500), 0.02, 0.35, 0.18);
+    for (let i = 0; i < 8; i++) ping(out, rate, random() * 0.5, [800 + random() * 1700], 0.03, 0.2);
+  }, 0.85);
+}
+
+/** A bullet striking rock or metal. */
+export function impact(c: BaseAudioContext, seed: number) {
+  return make(c, 0.25, 500 + seed, (out, rate, random) => {
+    add(out, rate, filter(noise(seconds(0.12, rate), random), rate, 'lowpass', 1600), 0, 1, 0.02);
+    thump(out, rate, 0, 200, 90, 0.03, 0.5);
+    ping(out, rate, 0, [1100 + random() * 900], 0.015, 0.2);
+  }, 0.6);
+}
+
+/** Airlock door sliding: an electric motor with a mechanical rumble. */
+export function doorMotor(c: BaseAudioContext) {
+  return make(c, 1.1, 600, (out, rate, random) => {
+    const length = seconds(1.05, rate);
+    const motor = new Float32Array(length);
+    let phase = 0;
+    for (let i = 0; i < length; i++) {
+      const t = i / rate;
+      phase += (85 + 25 * Math.min(1, t * 3)) / rate;
+      const saw = (phase % 1) * 2 - 1;
+      const env = Math.min(1, t / 0.08) * Math.min(1, (1.05 - t) / 0.15);
+      motor[i] = (saw * 0.7 + Math.sin(phase * 2 * Math.PI * 5) * 0.08) * env;
+    }
+    add(out, rate, filter(motor, rate, 'lowpass', 700), 0, 1, 100);
+    const rumble = filter(noise(length, random), rate, 'lowpass', 160);
+    for (let i = 0; i < length; i++) rumble[i] *= Math.min(1, i / rate / 0.1) * Math.min(1, (1.05 - i / rate) / 0.2);
+    add(out, rate, rumble, 0, 1.5, 100);
+  }, 0.7);
+}
+
+/** The door hitting its stop. */
+export function doorClunk(c: BaseAudioContext) {
+  return make(c, 0.6, 601, (out, rate, random) => {
+    thump(out, rate, 0, 120, 55, 0.08, 1);
+    add(out, rate, filter(noise(seconds(0.1, rate), random), rate, 'lowpass', 900), 0, 0.6, 0.03);
+    ping(out, rate, 0.002, [420, 980, 1650], 0.15, 0.3);
+  }, 0.85);
+}
+
+/** Air rushing into (or out of) the airlock chamber. */
+export function hiss(c: BaseAudioContext) {
+  return make(c, 1.5, 602, (out, rate, random) => {
+    const hissNoise = filter(filter(noise(seconds(1.5, rate), random), rate, 'highpass', 1800), rate, 'lowpass', 9000);
+    for (let i = 0; i < hissNoise.length; i++) {
+      const t = i / rate;
+      // Strong at first, then tailing off as the pressure evens out.
+      hissNoise[i] *= Math.min(1, t / 0.06) * Math.exp(-t / 0.5);
+    }
+    add(out, rate, hissNoise, 0, 1, 100);
+  }, 0.6);
+}
+
+/** Breathing inside the helmet: a breath in, and a breath out. */
+export function breath(c: BaseAudioContext, seed: number, inhale: boolean) {
+  const length = inhale ? 1.1 : 1.3;
+  return make(c, length, 700 + seed + (inhale ? 0 : 50), (out, rate, random) => {
+    const n = seconds(length, rate);
+    const mouth = filter(noise(n, random), rate, 'bandpass', inhale ? 1100 : 650, inhale ? 0.9 : 0.8);
+    const edge = filter(noise(n, random), rate, 'bandpass', inhale ? 2400 : 1500, 2);
+    for (let i = 0; i < n; i++) {
+      const t = i / n;
+      // In: swells and stops. Out: starts strong and trails off.
+      const env = inhale ? Math.pow(Math.sin(Math.PI * t), 1.4) * (0.6 + 0.4 * t) : Math.min(1, t / 0.1) * Math.pow(1 - t, 1.3);
+      out[i] = (mouth[i] + edge[i] * 0.35) * env;
+    }
+  }, inhale ? 0.5 : 0.6);
+}
+
+/** Suit alarm: two short tones. */
+export function alarm(c: BaseAudioContext) {
+  return make(c, 0.3, 800, (out, rate) => {
+    for (const [start, freq] of [[0, 1760], [0.11, 1320]]) {
+      const begin = seconds(start, rate);
+      for (let i = 0; i < seconds(0.08, rate); i++) {
+        const t = i / rate;
+        out[begin + i] += Math.sin(2 * Math.PI * freq * t) * Math.min(1, t / 0.003) * Math.min(1, (0.08 - t) / 0.01);
+      }
+    }
+  }, 0.5);
+}
+
+/** Hit confirmation tick from the helmet display; brighter for a bullseye. */
+export function hitTick(c: BaseAudioContext, bullseye: boolean) {
+  return make(c, bullseye ? 0.18 : 0.08, 900, (out, rate) => {
+    const tone = (start: number, freq: number, length: number) => {
+      const begin = seconds(start, rate);
+      for (let i = 0; i < seconds(length, rate); i++) {
+        const t = i / rate;
+        const tri = (2 / Math.PI) * Math.asin(Math.sin(2 * Math.PI * freq * t)); // triangle wave
+        out[begin + i] += tri * Math.min(1, t / 0.004) * Math.exp(-t / (length / 3));
+      }
+    };
+    tone(0, 1400, 0.06);
+    if (bullseye) tone(0.05, 2100, 0.09);
+  }, bullseye ? 0.45 : 0.35);
+}
+
+/** A few seconds of plain noise, for looping sounds built from live filters. */
+export function noiseLoop(c: BaseAudioContext) {
+  return make(c, 3, 999, (out, _rate, random) => out.set(noise(out.length, random)), 0.9);
+}

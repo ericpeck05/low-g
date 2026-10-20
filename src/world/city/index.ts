@@ -23,9 +23,11 @@ export function buildCity(scene: THREE.Scene, world: RAPIER.World) {
     glass: dome.glass,
     /** The dome's solid shell (sunlight passes through it; bullets and people don't). */
     glassCollider: dome.collider,
+    /** Moves doors and blinking lights. Returns airlock sound events. */
     update(dt: number, player: THREE.Vector3) {
       for (const airlock of airlocks) airlock.update(dt, player);
       exterior.update(dt);
+      return airlocks.flatMap((airlock) => airlock.takeEvents());
     },
   };
 }

@@ -7,6 +7,13 @@ import type { Player } from './player';
 
 const UP = new THREE.Vector3(0, 1, 0);
 
+/** A step for the sound system: on dust (soft) or a hard floor, and how heavy. */
+export interface StepEvent {
+  landing: boolean;
+  hard: boolean;
+  strength: number;
+}
+
 // Boot prints pressed into the dust, and little puffs kicked up with each step.
 // Prints only appear on the lunar surface, not on crates or buildings.
 export class Footsteps {
@@ -38,31 +45,36 @@ export class Footsteps {
     scene.add(this.prints);
   }
 
-  update(dt: number, player: Player, yaw: number) {
+  /** Leaves prints and kicks up dust. Returns a step (for its sound) when a foot comes down. */
+  update(dt: number, player: Player, yaw: number): StepEvent | null {
     const feet = player.feet;
     // Only the bare lunar surface takes prints: not the paved city, not rooftops.
     const onDust = !isInsideDome(feet) && Math.abs(feet.y - terrainHeight(feet.x, feet.z)) < 0.15;
 
-    if (player.landingSpeed > 1 && onDust) {
-      // Both feet hit at once.
-      this.stamp(feet, yaw, true);
-      this.stamp(feet, yaw, false);
-      this.dust.kickDust(feet, CONFIG.footsteps.landingDust, 0.4 + player.landingSpeed * 0.15);
+    if (player.landingSpeed > 1) {
       this.distance = 0;
-      return;
+      if (onDust) {
+        // Both feet hit at once.
+        this.stamp(feet, yaw, true);
+        this.stamp(feet, yaw, false);
+        this.dust.kickDust(feet, CONFIG.footsteps.landingDust, 0.4 + player.landingSpeed * 0.15);
+      }
+      return { landing: true, hard: !onDust, strength: Math.min(1.3, 0.5 + player.landingSpeed * 0.15) };
     }
 
-    if (!player.grounded) return;
+    if (!player.grounded) return null;
     this.distance += player.horizontalSpeed * dt;
-    if (this.distance < CONFIG.footsteps.strideLength) return;
+    if (this.distance < CONFIG.footsteps.strideLength) return null;
     this.distance = 0;
     this.leftFoot = !this.leftFoot;
-    if (!onDust) return;
+    const step = { landing: false, hard: !onDust, strength: player.crouched ? 0.5 : player.sprinting ? 1.2 : 1 };
+    if (!onDust) return step;
 
     // Face the print the way the player is moving, not just looking.
     const moveYaw = Math.atan2(-player.velocity.x, -player.velocity.z);
     this.stamp(feet, moveYaw, this.leftFoot);
     this.dust.kickDust(feet, CONFIG.footsteps.dustPerStep, 0.35 + player.horizontalSpeed * 0.05);
+    return step;
   }
 
   private stamp(feet: THREE.Vector3, yaw: number, left: boolean) {

@@ -165,6 +165,18 @@ export const CONFIG = {
     runDrainGrowthPerMinute: 0.6,
   },
 
+  audio: {
+    // Outside the dome there's no air to carry sound. World sounds are cut down to a faint
+    // low rumble; your own gun, steps and jetpack still reach you through the suit, dulled.
+    worldMuffleHz: 260, // world sounds' brightness outside (inside: full range)
+    worldMuffleGain: 0.45,
+    bodyMuffleHz: 1000, // sounds carried through your suit outside
+    domeReverb: 0.22, // how much the dome echoes (none outside: vacuum)
+    muffleTime: 0.6, // seconds to go from inside sound to outside sound
+    breathPeriodCalm: 4.2, // seconds per breath, relaxed
+    breathPeriodPanic: 1.4, // seconds per breath with almost no oxygen left
+  },
+
   scoring: {
     comboStep: 5, // the multiplier goes up by one every this many hits in a row
     maxMultiplier: 4,
