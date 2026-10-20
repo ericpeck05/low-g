@@ -98,6 +98,11 @@ export class PopupTarget implements Target {
     this.applyPose();
   }
 
+  /** Lie flat and stay there (it's only raised by the target manager). */
+  standDown() {
+    this.reset();
+  }
+
   // Tip the hinge to match progress and move the collider with the disc.
   private applyPose() {
     // Ease in and out so the flip has some snap.

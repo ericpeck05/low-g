@@ -1,18 +1,20 @@
 import { CONFIG } from '../config';
 
-// The three ways to play:
+// The ways to play:
 //  range      - free practice, no timer
 //  timeTrial  - 60 seconds, highest score wins
 //  oxygenRun  - locked outside the dome; survive as long as you can by hitting targets for air
-export type Mode = 'range' | 'timeTrial' | 'oxygenRun';
+//  siege      - Drone Siege: hostile drones that shoot back (see DRONE_SIEGE.md)
+export type Mode = 'range' | 'timeTrial' | 'oxygenRun' | 'siege';
 
 export const MODE_NAMES: Record<Mode, string> = {
   range: 'RANGE',
   timeTrial: 'TIME TRIAL',
   oxygenRun: 'OXYGEN RUN',
+  siege: 'DRONE SIEGE',
 };
 
-export type EndReason = 'timeUp' | 'oxygen';
+export type EndReason = 'timeUp' | 'oxygen' | 'destroyed';
 
 // Tracks which mode is running, its clock, and whether it's over.
 export class Session {

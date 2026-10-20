@@ -15,6 +15,7 @@ export class TargetManager {
   private popups: PopupTarget[] = [];
   private byCollider = new Map<number, Target>(); // collider handle -> target
   private nextPopup = 1;
+  private active = true; // false in Drone Siege, where the practice targets stand down
 
   constructor(
     private scene: THREE.Scene,
@@ -41,7 +42,7 @@ export class TargetManager {
     // Every so often, raise a random pop-up that's lying down near the player.
     // (There's no point raising one on the far side of the map.)
     this.nextPopup -= dt;
-    if (this.nextPopup <= 0) {
+    if (this.active && this.nextPopup <= 0) {
       const [min, max] = CONFIG.targets.popupInterval;
       this.nextPopup = min + Math.random() * (max - min);
       const waiting = this.popups.filter(
@@ -64,6 +65,15 @@ export class TargetManager {
     for (const target of this.targets) target.reset();
     this.debris.clear();
     this.nextPopup = 1;
+  }
+
+  /**
+   * Drone Siege turns the practice drones and pop-ups off (the amber practice drones would
+   * be confused with hostile ones). The bullseyes stay as part of the range. Call after reset().
+   */
+  setActive(active: boolean) {
+    this.active = active;
+    if (!active) for (const target of this.targets) target.standDown?.();
   }
 
   private add(target: Target) {

@@ -14,7 +14,7 @@ export class ImpactEffects {
 
   constructor(scene: THREE.Scene) {
     this.dust = new ParticleSystem(scene, 2500, false);
-    this.sparks = new ParticleSystem(scene, 400, true);
+    this.sparks = new ParticleSystem(scene, 1200, true); // room for several drone explosions at once
   }
 
   spawn(point: THREE.Vector3, normal: THREE.Vector3) {
@@ -64,6 +64,24 @@ export class ImpactEffects {
     for (let i = 0; i < 5; i++) {
       const dir = direction.clone().add(randomInSphere().multiplyScalar(0.12)).normalize();
       this.sparks.spawn(position, dir.multiplyScalar(18 + Math.random() * 20), 0.08 + Math.random() * 0.14, 0.02, SPARK_COLOR, -1000, 0.06);
+    }
+  }
+
+  /** Sparks off metal, with no dust: a hit on a drone in mid-air. */
+  metalSparks(point: THREE.Vector3, normal: THREE.Vector3, count = 8, color = SPARK_COLOR) {
+    const floorY = terrainHeight(point.x, point.z);
+    for (let i = 0; i < count; i++) {
+      const dir = normal.clone().add(randomInSphere().multiplyScalar(0.9)).normalize();
+      this.sparks.spawn(point, dir.multiplyScalar(4 + Math.random() * 6), 0.25 + Math.random() * 0.35, 0.03, color, floorY, 0.2);
+    }
+  }
+
+  /** A ball of sparks flying out every way at once (a drone blowing apart). They arc down slowly. */
+  burst(center: THREE.Vector3, count: number, speed: number, life: number) {
+    const floorY = terrainHeight(center.x, center.z);
+    for (let i = 0; i < count; i++) {
+      const velocity = randomInSphere().normalize().multiplyScalar(speed * (0.25 + Math.random() * 0.75));
+      this.sparks.spawn(center, velocity, life * (0.35 + Math.random() * 0.65), 0.045, SPARK_COLOR, floorY, life * 0.5);
     }
   }
 

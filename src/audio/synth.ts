@@ -281,6 +281,103 @@ export function hitTick(c: BaseAudioContext, bullseye: boolean) {
   }, bullseye ? 0.45 : 0.35);
 }
 
+// ---- Drone Siege ----
+
+/** A falling electric zap: a buzzy tone that drops from `from` to `to` Hz. */
+function zap(rate: number, length: number, from: number, to: number, fall: number) {
+  const out = new Float32Array(seconds(length, rate));
+  let phase = 0;
+  for (let i = 0; i < out.length; i++) {
+    const t = i / rate;
+    phase += (to + (from - to) * Math.exp(-t / fall)) / rate;
+    out[i] = (phase % 1) * 2 - 1; // sawtooth: bright and buzzy
+  }
+  return out;
+}
+
+/** A hostile drone's plasma shot: a sharp snap that drops in pitch, with a crackle. */
+export function plasmaShot(c: BaseAudioContext, seed: number) {
+  return make(c, 0.4, 1000 + seed, (out, rate, random) => {
+    add(out, rate, filter(zap(rate, 0.25, 1700 + random() * 300, 200, 0.045), rate, 'lowpass', 4500), 0, 0.8, 0.07);
+    add(out, rate, filter(noise(seconds(0.12, rate), random), rate, 'highpass', 2600), 0, 0.4, 0.025);
+    thump(out, rate, 0, 190, 60, 0.04, 0.55);
+  }, 0.8);
+}
+
+/** A drone charging a shot: a whine that rises and builds for half a second. */
+export function plasmaCharge(c: BaseAudioContext) {
+  return make(c, 0.55, 1100, (out, rate) => {
+    let a = 0;
+    let b = 0;
+    for (let i = 0; i < out.length; i++) {
+      const t = i / rate;
+      const p = t / 0.55;
+      const f = 320 + 1500 * p * p;
+      a += f / rate;
+      b += (f * 1.5) / rate;
+      const level = Math.min(1, t / 0.05) * (0.25 + 0.75 * p) * (0.85 + 0.15 * Math.sin(2 * Math.PI * 32 * t));
+      out[i] = (Math.sin(2 * Math.PI * a) * 0.7 + Math.sin(2 * Math.PI * b) * 0.3) * level;
+    }
+  }, 0.5);
+}
+
+/** A plasma bolt splashing on a wall: a fizzing crackle. */
+export function boltImpact(c: BaseAudioContext, seed: number) {
+  return make(c, 0.35, 1200 + seed, (out, rate, random) => {
+    add(out, rate, filter(noise(seconds(0.25, rate), random), rate, 'bandpass', 1900, 0.8), 0, 1, 0.06);
+    thump(out, rate, 0, 140, 55, 0.035, 0.5);
+    for (let i = 0; i < 6; i++) add(out, rate, filter(noise(seconds(0.01, rate), random), rate, 'highpass', 4000), random() * 0.2, 0.4, 0.004);
+  }, 0.6);
+}
+
+/** A bolt flying past your helmet: a fizz that falls in pitch as it goes by. */
+export function boltWhiz(c: BaseAudioContext, seed: number) {
+  return make(c, 0.45, 1300 + seed, (out, rate, random) => {
+    const hiss = noise(seconds(0.4, rate), random);
+    add(out, rate, filter(hiss.slice(0, seconds(0.2, rate)), rate, 'bandpass', 3200, 1.5), 0, 0.8, 0.12, 0.08);
+    add(out, rate, filter(hiss.slice(seconds(0.2, rate)), rate, 'bandpass', 1500, 1.5), 0.16, 0.6, 0.1);
+    add(out, rate, filter(zap(rate, 0.35, 900, 300, 0.12), rate, 'lowpass', 1200), 0.04, 0.25, 0.12, 0.06);
+  }, 0.55);
+}
+
+/** A plasma hit on your suit: a heavy thud, a sizzle, and the visor glass creaking. */
+export function suitHit(c: BaseAudioContext, seed: number) {
+  return make(c, 0.6, 1400 + seed, (out, rate, random) => {
+    thump(out, rate, 0, 120, 38, 0.12, 1.2);
+    add(out, rate, filter(noise(seconds(0.35, rate), random), rate, 'highpass', 3000), 0.005, 0.5, 0.09);
+    add(out, rate, filter(noise(seconds(0.08, rate), random), rate, 'lowpass', 700), 0, 0.8, 0.03);
+    ping(out, rate, 0.03 + random() * 0.03, [2500 + random() * 400, 3900], 0.03, 0.18);
+  }, 0.85);
+}
+
+/** A drone blowing apart: a deep blast, plasma crackling as it discharges, parts ringing. */
+export function droneExplosion(c: BaseAudioContext, seed: number) {
+  return make(c, 1.6, 1500 + seed, (out, rate, random) => {
+    thump(out, rate, 0, 95, 28, 0.35, 1.3);
+    add(out, rate, filter(filter(noise(seconds(0.8, rate), random), rate, 'lowpass', 900), rate, 'lowpass', 700), 0, 1.2, 0.22);
+    add(out, rate, filter(noise(seconds(0.05, rate), random), rate, 'highpass', 2000), 0, 0.7, 0.015);
+    for (let i = 0; i < 26; i++) {
+      add(out, rate, filter(noise(seconds(0.012, rate), random), rate, 'bandpass', 2500 + random() * 3000, 2), Math.pow(random(), 1.6) * 0.7, 0.35, 0.006);
+    }
+    for (let i = 0; i < 8; i++) ping(out, rate, 0.05 + random() * 0.6, [700 + random() * 1800], 0.04, 0.12);
+  }, 0.95);
+}
+
+/** The suit integrity alarm: a fast, urgent warble, unlike the oxygen beep. */
+export function suitAlarm(c: BaseAudioContext) {
+  return make(c, 0.4, 1600, (out, rate) => {
+    for (let n = 0; n < 4; n++) {
+      const begin = seconds(n * 0.09, rate);
+      const freq = n % 2 === 0 ? 990 : 740;
+      for (let i = 0; i < seconds(0.075, rate); i++) {
+        const t = i / rate;
+        const square = Math.sign(Math.sin(2 * Math.PI * freq * t)) * 0.6 + Math.sin(2 * Math.PI * freq * t) * 0.4;
+        out[begin + i] += square * Math.min(1, t / 0.003) * Math.min(1, (0.075 - t) / 0.008);
+      }
+    }
+  }, 0.45);
+}
+
 /** A few seconds of plain noise, for looping sounds built from live filters. */
 export function noiseLoop(c: BaseAudioContext) {
   return make(c, 3, 999, (out, _rate, random) => out.set(noise(out.length, random)), 0.9);

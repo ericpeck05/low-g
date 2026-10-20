@@ -276,4 +276,64 @@ export const CONFIG = {
     groundBounce: 0.16,
     opposition: 0.45, // extra brightness of ground seen with the sun behind you (the "opposition surge")
   },
+
+  // Drone Siege: hostile drones that shoot back (see DRONE_SIEGE.md).
+  siege: {
+    maxDrones: 24, // most hostile drones alive at once (the size of the drone pool)
+    maxBolts: 96, // most plasma bolts in flight at once
+    testDrones: 3, // early test mode (before rounds): scouts kept alive at a time
+    testRespawnDelay: 4, // seconds before a destroyed scout is replaced
+    spawnDistance: [24, 34], // meters from the player where drones appear
+    spawnHeight: [6, 11], // meters above the player's feet
+    rifleDamage: 34, // per rifle hit on a drone
+    coreMultiplier: 2, // a hit on the glowing core does this much more damage
+    lostSightTime: 6, // seconds a drone can go without seeing you before it moves somewhere that can
+    glowColor: [1, 0.05, 0.03], // hostile red (red, green, blue)
+    glowIdle: 1.4, // brightness of the core normally (kept low so it stays a deep red)
+    glowCharged: 9, // brightness at the moment it fires: white-hot, with a bloom flare
+    haloSize: 1.1, // meters across the soft red glow around each drone's core
+
+    suit: {
+      max: 100, // suit integrity: your health
+      regenDelay: 4, // seconds without being hit before the suit starts repairing itself
+      regenRate: 22, // integrity per second while repairing
+      lowWarning: 35, // below this the visor cracks and the suit alarm sounds
+    },
+
+    scout: {
+      health: 100,
+      speed: 6.5, // m/s top speed
+      acceleration: 7, // m/s² of steering
+      range: [13, 21], // meters it likes to keep from you
+      height: [2.5, 7], // meters above your feet it likes to hover
+      strafeSpeed: 4, // m/s it circles around you
+      fireInterval: [1.9, 3.2], // seconds between shots
+      telegraph: 0.5, // seconds its core glows brighter before a shot
+      aimSpread: 2.2, // degrees of random aim error
+      aimLead: 0.5, // 0 aims where you are, 1 aims where you'll be when the bolt arrives
+      sightRange: 50, // meters: no shooting from farther than this
+    },
+
+    bolt: {
+      speed: 15, // m/s: slow enough to see coming and dodge
+      damage: 12,
+      radius: 0.14, // meters, for hitting you
+      life: 5, // seconds before a bolt that hit nothing fizzles out
+    },
+
+    explosion: {
+      debris: 14, // pieces per destroyed drone
+      maxDebris: 240, // pieces in the pool
+      debrisLife: 8, // seconds pieces last before shrinking away
+      sparks: 45,
+      flashTime: 0.35, // seconds the flash lasts
+      lightIntensity: 60,
+      lightRange: 16, // meters the flash lights up
+    },
+
+    feedback: {
+      flashTime: 0.5, // seconds the red edge flash lasts after a hit
+      indicatorTime: 1.6, // seconds the hit-direction marker stays up
+    },
+  },
 };

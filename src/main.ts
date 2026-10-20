@@ -20,6 +20,8 @@ import { placeCityTargets } from './targets/cityTargets';
 import { Hud } from './ui/hud';
 import { loading } from './ui/loading';
 import { Menu } from './ui/menu';
+import { SuitHud } from './ui/suitHud';
+import { type SiegeEvent, type SiegePlayer, SiegeMode } from './siege/siege';
 import type { HitResult } from './targets/target';
 import { Ejecta } from './weapons/ejecta';
 import { applySpread, castShot } from './weapons/hitscan';
@@ -77,13 +79,15 @@ async function boot() {
   const footsteps = new Footsteps(scene, impacts);
   const targets = new TargetManager(scene, world);
   placeCityTargets(targets);
+  const siege = new SiegeMode(scene, world, impacts);
   const composer = createComposer(renderer, scene, camera, viewmodel);
-  composer.excludeFromAO(sky.group, city.glass, footsteps.prints, ...impacts.objects);
+  composer.excludeFromAO(sky.group, city.glass, footsteps.prints, ...impacts.objects, ...siege.glowObjects);
   const scoring = new Scoring();
   const session = new Session();
   const oxygen = new Oxygen();
   let inside = true; // breathing dome air (inside the dome or an airlock chamber)
   const hud = new Hud();
+  const suitHud = new SuitHud(hud);
   await loading.step(0.71, 'RECORDING SOUNDS');
   const audio = new GameAudio();
   let lastReloadProgress = 0; // for timing reload sounds to the animation
@@ -95,6 +99,8 @@ async function boot() {
       // Range has no end screen, so its best score is saved when you leave it.
       if (session.mode === 'range' && session.state === 'playing') submitHighScore('range', scoring.score);
       session.state = 'menu';
+      siege.stop();
+      suitHud.setActive(false);
       menu.showMain();
     },
   });
@@ -152,8 +158,42 @@ async function boot() {
     // The oxygen run keeps you outside: the airlocks stay sealed.
     for (const airlock of city.airlocks) airlock.locked = mode === 'oxygenRun';
     placePlayer(mode === 'oxygenRun' ? CONFIG.scoring.oxygenRunStart : CONFIG.scoring.rangeStart);
+    // Drone Siege: the practice targets stand down and hostile drones come in.
+    targets.setActive(mode !== 'siege');
+    suitHud.setActive(mode === 'siege');
+    if (mode === 'siege') siege.start(siegePlayer());
+    else siege.stop();
     menu.hide();
     void lockMouse();
+  }
+
+  // The player as the hostile drones see them.
+  function siegePlayer(): SiegePlayer {
+    const feet = player.feet;
+    return {
+      feet,
+      head: feet.clone().setY(feet.y + player.height - 0.15),
+      height: player.height,
+      velocity: player.velocity,
+      collider: player.collider,
+    };
+  }
+
+  // Sounds and visor feedback for what happened in the fight this frame.
+  function onSiegeEvents(events: SiegeEvent[]) {
+    for (const event of events) {
+      if (event.kind === 'charge') audio.droneCharge(event.position);
+      else if (event.kind === 'fire') audio.droneFire(event.position);
+      else if (event.kind === 'boltImpact') audio.boltImpact(event.position);
+      else if (event.kind === 'whiz') audio.boltWhiz(event.position);
+      else if (event.kind === 'playerHit') {
+        audio.suitHit();
+        suitHud.hit(event.from);
+      } else if (event.kind === 'suitDestroyed' && session.state === 'playing') {
+        session.end('destroyed');
+        endRun();
+      }
+    }
   }
 
   // bearing: the compass direction to face (180 = toward -z), same as the sky and city layout.
@@ -191,8 +231,9 @@ async function boot() {
       player.update(dt, input, look.yaw, rifle.aiming);
       const step = footsteps.update(dt, player, look.yaw);
       if (step) audio.footstep(step.hard, step.landing, step.strength);
-      // These move colliders (targets, airlock doors), so they go before the physics step.
+      // These move colliders (targets, drones, airlock doors), so they go before the physics step.
       targets.update(dt, player.feet);
+      if (session.mode === 'siege') onSiegeEvents(siege.update(dt, siegePlayer()));
       for (const event of city.update(dt, player.feet)) {
         if (event.kind === 'doorMoving') audio.doorMoving(event.position);
         else if (event.kind === 'doorStopped') audio.doorStopped(event.position);
@@ -275,7 +316,9 @@ async function boot() {
       oxygenLow: oxygen.low,
       thrusting: player.jetpack.thrusting,
       exertion: player.jetpack.thrusting || player.sprinting ? 1 : 0,
+      suitLow: playing && session.mode === 'siege' && siege.suit.low,
     });
+    if (session.mode === 'siege') suitHud.update(playing ? dt : 0, siege.suit, player.feet, look.yaw);
     hud.update({
       dt,
       player,
@@ -293,6 +336,7 @@ async function boot() {
       mouse,
       showStats: settings.get().showStats,
       frameTime,
+      dronesDestroyed: session.mode === 'siege' ? siege.kills : null,
       render: {
         calls: renderer.info.render.calls,
         triangles: renderer.info.render.triangles,
@@ -314,12 +358,24 @@ async function boot() {
     const direction = applySpread(aim, spread);
     const hit = castShot(world, camera.position, direction, CONFIG.rifle.range, player.collider);
     const targetHit = hit ? targets.tryHit(hit.collider, hit.point, direction) : null;
-    if (hit) impacts.spawn(hit.point, hit.normal);
+    const droneHit = hit && !targetHit ? siege.tryHit(hit.collider, CONFIG.siege.rifleDamage) : null;
     audio.gunshot();
-    if (hit && targetHit) audio.targetBreak(hit.point, targetHit.label === 'DRONE');
-    else if (hit) audio.impact(hit.point);
+    if (hit && droneHit) {
+      // A hostile drone: sparks off its hull, and a brighter marker for the core.
+      impacts.metalSparks(hit.point, hit.normal, droneHit.core ? 14 : 8);
+      audio.hitConfirm(droneHit.core);
+      hud.flashHitmarker(droneHit.core);
+      if (droneHit.destroyed) {
+        audio.droneExplosion(droneHit.position);
+        hud.showCallout(droneHit.core ? 'CORE KILL' : 'DRONE DESTROYED', droneHit.core);
+      } else audio.impact(hit.point);
+    } else if (hit) {
+      impacts.spawn(hit.point, hit.normal);
+      if (targetHit) audio.targetBreak(hit.point, targetHit.label === 'DRONE');
+      else audio.impact(hit.point);
+    }
 
-    const earned = scoring.recordShot(targetHit);
+    const earned = scoring.recordShot(targetHit ?? (droneHit ? { points: 0, label: 'DRONE', bullseye: droneHit.core } : null));
     if (targetHit) {
       // Out on the surface, every hit buys a little air.
       const bonus = inside ? 0 : oxygenReward(targetHit);
@@ -382,12 +438,13 @@ async function boot() {
   }
 
   // Shows the results and records a high score. Time Trial and Range rank by score,
-  // the Oxygen Run by how long you survived.
+  // the Oxygen Run by how long you survived, Drone Siege by drones destroyed.
   function endRun() {
     const mode = session.mode;
-    const value = mode === 'oxygenRun' ? Math.floor(session.elapsed) : scoring.score;
+    const value = mode === 'oxygenRun' ? Math.floor(session.elapsed) : mode === 'siege' ? siege.kills : scoring.score;
     const newBest = submitHighScore(mode, value);
-    menu.showResults({ mode, reason: session.endReason ?? 'timeUp', scoring, survived: session.elapsed, newBest });
+    const siegeStats = mode === 'siege' ? { kills: siege.kills, coreKills: siege.coreKills } : undefined;
+    menu.showResults({ mode, reason: session.endReason ?? 'timeUp', scoring, survived: session.elapsed, newBest, siege: siegeStats });
     document.exitPointerLock();
   }
 
@@ -420,7 +477,7 @@ async function boot() {
   // lowg.tick(1 / 60) advances one frame by hand, which is handy for testing.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      lowg: { renderer, scene, composer, audio, ejecta, input, look, player, camera, world, city, oxygen, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, settings, sun, rocks, sky, tick, startRun },
+      lowg: { renderer, scene, composer, audio, ejecta, input, look, player, camera, world, city, oxygen, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, settings, sun, rocks, sky, siege, suitHud, hud, tick, startRun },
     });
   }
 }

@@ -15,6 +15,7 @@ export interface AudioFrame {
   oxygenLow: boolean;
   thrusting: boolean;
   exertion: number; // 0 resting, 1 sprinting or flying
+  suitLow: boolean; // Drone Siege: suit integrity critical
 }
 
 export class GameAudio {
@@ -27,6 +28,8 @@ export class GameAudio {
   private breathCount = 0;
   private stress = 0;
   private alarmTimer = 0;
+  private suitAlarmTimer = 0;
+  private lastPlayed = new Map<string, number>(); // for spacing out sounds many drones make at once
   private variant = 0;
 
   constructor() {
@@ -101,6 +104,37 @@ export class GameAudio {
     this.play(this.sounds.hiss, 'world', { gain: 0.9, position });
   }
 
+  // ---- Drone Siege ----
+
+  /** A drone's core whining up before it fires: your cue to move. */
+  droneCharge(position: THREE.Vector3) {
+    if (this.tooSoon('charge', 0.15)) return;
+    this.play(this.sounds.plasmaCharge, 'world', { gain: 0.55, position });
+  }
+
+  droneFire(position: THREE.Vector3) {
+    if (this.tooSoon('fire', 0.07)) return;
+    this.play(this.pick(this.sounds.plasmaShots), 'world', { gain: 0.8, position, rate: 0.94 + Math.random() * 0.12 });
+  }
+
+  boltImpact(position: THREE.Vector3) {
+    if (this.tooSoon('boltImpact', 0.05)) return;
+    this.play(this.pick(this.sounds.boltImpacts), 'world', { gain: 0.6, position, rate: 0.9 + Math.random() * 0.2 });
+  }
+
+  boltWhiz(position: THREE.Vector3) {
+    this.play(this.pick(this.sounds.boltWhizzes), 'world', { gain: 0.75, position, rate: 0.9 + Math.random() * 0.2 });
+  }
+
+  /** You were hit: felt through the suit itself, so it's clear even in vacuum. */
+  suitHit() {
+    this.play(this.pick(this.sounds.suitHits), 'body', { gain: 1 });
+  }
+
+  droneExplosion(position: THREE.Vector3) {
+    this.play(this.pick(this.sounds.droneExplosions), 'world', { gain: 1, position, rate: 0.92 + Math.random() * 0.16 });
+  }
+
   // ---- Continuous sounds, once per frame ----
 
   update(f: AudioFrame) {
@@ -120,6 +154,28 @@ export class GameAudio {
     if (!f.playing) return;
     this.breathe(f, vacuum);
     this.alarm(f);
+    this.suitAlarm(f);
+  }
+
+  // Suit integrity critical: a fast warble, inside or out, until it repairs.
+  private suitAlarm(f: AudioFrame) {
+    if (!f.suitLow) {
+      this.suitAlarmTimer = 0;
+      return;
+    }
+    this.suitAlarmTimer -= f.dt;
+    if (this.suitAlarmTimer > 0) return;
+    this.suitAlarmTimer = 0.75;
+    this.play(this.sounds.suitAlarm, 'suit', { gain: 0.32 });
+  }
+
+  // With a couple of dozen drones, the same sound can be asked for many times a second.
+  // Skipping repeats closer together than `gap` seconds keeps a big fight readable.
+  private tooSoon(name: string, gap: number) {
+    const now = this.engine.context.currentTime;
+    if (now - (this.lastPlayed.get(name) ?? -Infinity) < gap) return true;
+    this.lastPlayed.set(name, now);
+    return false;
   }
 
   // Breathing: calm and slow normally, faster and louder when exerted or short of air.
@@ -270,5 +326,12 @@ function buildSounds(c: BaseAudioContext) {
     inhales: range(2).map((i) => synth.breath(c, i, true)),
     exhales: range(2).map((i) => synth.breath(c, i, false)),
     alarm: synth.alarm(c),
+    plasmaShots: range(3).map((i) => synth.plasmaShot(c, i)),
+    plasmaCharge: synth.plasmaCharge(c),
+    boltImpacts: range(3).map((i) => synth.boltImpact(c, i)),
+    boltWhizzes: range(2).map((i) => synth.boltWhiz(c, i)),
+    suitHits: range(3).map((i) => synth.suitHit(c, i)),
+    droneExplosions: range(2).map((i) => synth.droneExplosion(c, i)),
+    suitAlarm: synth.suitAlarm(c),
   };
 }

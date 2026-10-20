@@ -17,4 +17,6 @@ export interface Target {
   hit(point: THREE.Vector3, shotDirection: THREE.Vector3): HitResult;
   /** Puts the target back to its starting state for a new run. */
   reset(): void;
+  /** Out of the way for Drone Siege: not shown or hittable until the next reset. */
+  standDown?(): void;
 }

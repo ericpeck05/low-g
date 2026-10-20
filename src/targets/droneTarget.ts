@@ -70,6 +70,12 @@ export class DroneTarget implements Target {
     return { points: CONFIG.targets.dronePoints, label: 'DRONE', bullseye: false };
   }
 
+  standDown() {
+    this.body.visible = false;
+    this.collider.setEnabled(false);
+    this.brokenTimer = 0; // so it doesn't come back by itself
+  }
+
   reset() {
     this.brokenTimer = 0;
     this.show();

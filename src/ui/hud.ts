@@ -27,6 +27,7 @@ export interface HudState {
   mouse: { x: number; y: number };
   showStats: boolean;
   frameTime: number; // seconds the last frame really took (dt is capped, this isn't)
+  dronesDestroyed: number | null; // Drone Siege: shown instead of the score (until it has points)
   render: { calls: number; triangles: number; width: number; height: number; quality: string };
 }
 
@@ -80,7 +81,7 @@ export class Hud {
         </div>
         <div class="hud-right">
           <div class="panel cut score">
-            <div class="label">SCORE</div>
+            <div class="label score-label">SCORE</div>
             <div class="value points">0</div>
             <div class="combo"></div>
             <div class="meter"><div></div></div>
@@ -110,7 +111,7 @@ export class Hud {
       'sway:.hud-sway', 'strip:.compass .strip', 'timer:.timer', 'timerLabel:.timer-label',
       'status:.status', 'where:.where', 'pressure:.pressure',
       'oxygen:.oxygen', 'o2:.o2', 'o2sub:.o2sub', 'fuel:.fuel', 'fuelpct:.fuelpct',
-      'points:.points', 'combo:.combo', 'meter:.meter div', 'accuracy:.accuracy',
+      'scoreLabel:.score-label', 'points:.points', 'combo:.combo', 'meter:.meter div', 'accuracy:.accuracy',
       'ammo:.ammo', 'rounds:.rounds', 'pips:.pips', 'state:.state', 'reload:.reload div',
       'crosshair:.crosshair', 'l:.crosshair .l', 'r:.crosshair .r', 't:.crosshair .t', 'b:.crosshair .b',
       'hitmarker:.hitmarker', 'popups:.popups', 'warning:.warning', 'toast:.toast', 'hypoxia:.hypoxia', 'stats:.stats',
@@ -133,6 +134,31 @@ export class Hud {
 
   setVisible(visible: boolean) {
     this.root.style.display = visible ? 'block' : 'none';
+  }
+
+  /** Add a readout panel above oxygen (for a mode's own readouts, like suit integrity). */
+  addPanel(panel: HTMLElement) {
+    this.root.querySelector('.hud-left .stack')!.prepend(panel);
+  }
+
+  /** Add a full-screen layer across the visor, under the readouts. */
+  addOverlay(layer: Element) {
+    this.root.insertBefore(layer, this.sway);
+  }
+
+  /** Flash the hit marker without a points popup. strong: amber, for a weak-point hit. */
+  flashHitmarker(strong: boolean) {
+    this.hitmarkerTime = 0.18;
+    this.el.hitmarker.classList.toggle('bullseye', strong);
+  }
+
+  /** Float a short message above the crosshair, like the points popups. */
+  showCallout(text: string, strong: boolean) {
+    const popup = document.createElement('div');
+    popup.className = strong ? 'popup bullseye' : 'popup';
+    popup.textContent = text;
+    this.el.popups.appendChild(popup);
+    window.setTimeout(() => popup.remove(), 900);
   }
 
   showToast(text: string) {
@@ -252,8 +278,11 @@ export class Hud {
 
   private updateScore(s: HudState) {
     const { scoring } = s;
-    this.el.points.textContent = scoring.score.toLocaleString('en-US');
-    this.el.combo.textContent = scoring.combo > 1 ? `COMBO ${scoring.combo} · x${scoring.multiplier}` : '';
+    const siege = s.dronesDestroyed !== null;
+    this.el.scoreLabel.textContent = siege ? 'DRONES DESTROYED' : 'SCORE';
+    this.el.points.textContent = siege ? String(s.dronesDestroyed) : scoring.score.toLocaleString('en-US');
+    this.el.combo.textContent = !siege && scoring.combo > 1 ? `COMBO ${scoring.combo} · x${scoring.multiplier}` : '';
+    this.el.meter.parentElement!.style.visibility = siege ? 'hidden' : 'visible';
     // Progress toward the next multiplier step.
     const { comboStep, maxMultiplier } = CONFIG.scoring;
     const progress = scoring.multiplier >= maxMultiplier ? 1 : (scoring.combo % comboStep) / comboStep;

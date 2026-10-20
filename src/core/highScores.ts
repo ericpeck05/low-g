@@ -1,13 +1,14 @@
 import type { Mode } from './session';
 
 // Best results for each mode, saved in this browser only (localStorage).
-// Range and Time Trial keep the best score; Oxygen Run keeps the longest survival time.
+// Range and Time Trial keep the best score; Oxygen Run keeps the longest survival time;
+// Drone Siege keeps the most drones destroyed in one game (until rounds arrive).
 
 const KEY = 'lowg.highScores.v1';
 
 export type HighScores = Record<Mode, number>;
 
-const EMPTY: HighScores = { range: 0, timeTrial: 0, oxygenRun: 0 };
+const EMPTY: HighScores = { range: 0, timeTrial: 0, oxygenRun: 0, siege: 0 };
 
 export function loadHighScores(): HighScores {
   // Storage can be blocked (private windows, strict settings): fall back to no records.

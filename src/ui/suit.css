@@ -1,0 +1,23 @@
+/* Drone Siege: suit integrity and damage on the visor. Hostile things are red-orange. */
+:root { --hostile: #ff4a2a; }
+
+/* The readout, above oxygen. It blinks orange when critical. */
+.suit .bar i.on { background: var(--white); }
+.suit.low .value, .suit.low .sub { color: var(--orange); }
+.suit.low .value { animation: hud-blink 0.5s steps(2) infinite; }
+.suit.low .bar i.on { background: var(--orange); }
+
+/* Red at the visor's edges when you're hit. */
+.damage-flash { position: absolute; inset: 0; opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 42%, rgba(255, 60, 30, 0.35) 72%, rgba(200, 20, 0, 0.85) 100%); }
+
+/* Arcs around the crosshair, pointing to where each hit came from. */
+.hit-arcs { position: absolute; left: 50%; top: 50%; }
+.hit-arc { position: absolute; left: 0; top: 0; width: 240px; height: 240px; opacity: 0; overflow: visible;
+  filter: drop-shadow(0 0 4px rgba(255, 60, 30, 0.9)); }
+.hit-arc path { fill: none; stroke: var(--hostile); stroke-width: 6; stroke-linecap: round; }
+
+/* Cracks across the visor glass when integrity is low. */
+.visor-cracks { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity 0.6s; }
+.visor-cracks polyline { fill: none; stroke: rgba(245, 240, 232, 0.6); stroke-width: 1.3; stroke-linejoin: bevel; }
+.visor-cracks polyline.shadow { stroke: rgba(0, 0, 0, 0.45); stroke-width: 3.2; }

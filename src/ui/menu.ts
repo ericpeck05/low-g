@@ -12,6 +12,7 @@ const MODE_BLURBS: Record<Mode, string> = {
   range: 'Free practice around the city. No timer. Run out of air outside and you wake up back in the plaza.',
   timeTrial: '60 seconds. Highest score wins. Going outside costs oxygen.',
   oxygenRun: 'Locked out on the surface. Every hit buys air, and the air goes faster the longer you last.',
+  siege: 'Hostile drones that shoot back. Dodge their red plasma bolts and hit the glowing core. Early test: endless scouts, no rounds yet.',
 };
 
 const CONTROLS: [string, string][] = [
@@ -35,6 +36,20 @@ export interface RunSummary {
   scoring: Scoring;
   survived: number; // seconds
   newBest: boolean;
+  siege?: { kills: number; coreKills: number }; // Drone Siege only
+}
+
+const END_TITLES: Record<EndReason, string> = {
+  timeUp: "TIME'S UP",
+  oxygen: 'OXYGEN DEPLETED',
+  destroyed: 'SUIT BREACHED',
+};
+
+/** A saved best result in words: a time, a score, or a drone count. */
+function recordText(mode: Mode, value: number) {
+  if (mode === 'oxygenRun') return `${formatTime(value)} SURVIVED`;
+  if (mode === 'siege') return `${value} DRONES`;
+  return `${value.toLocaleString('en-US')} PTS`;
 }
 
 export interface MenuActions {
@@ -91,7 +106,7 @@ export class Menu {
     const best = loadHighScores();
     const cards = (Object.keys(MODE_NAMES) as Mode[])
       .map((mode) => {
-        const record = best[mode] ? `BEST ${mode === 'oxygenRun' ? formatTime(best[mode]) : best[mode].toLocaleString('en-US')}` : 'NO RECORD YET';
+        const record = best[mode] ? `BEST ${recordText(mode, best[mode])}` : 'NO RECORD YET';
         return `<button class="mode" data-start="${mode}">
           <span class="title">${MODE_NAMES[mode]}</span>
           <span class="blurb">${MODE_BLURBS[mode]}</span>
@@ -150,7 +165,7 @@ export class Menu {
     const best = loadHighScores();
     const rows = (Object.keys(MODE_NAMES) as Mode[])
       .map((mode) => {
-        const value = best[mode] ? (mode === 'oxygenRun' ? `${formatTime(best[mode])} SURVIVED` : `${best[mode].toLocaleString('en-US')} PTS`) : '-';
+        const value = best[mode] ? recordText(mode, best[mode]) : '-';
         return `<tr><td>${MODE_NAMES[mode]}</td><td class="big">${value}</td></tr>`;
       })
       .join('');
@@ -196,16 +211,26 @@ export class Menu {
     const { scoring } = run;
     const accuracy = scoring.accuracy;
     const rows: [string, string][] = [];
-    if (run.mode === 'oxygenRun') rows.push(['SURVIVED', formatTime(run.survived)]);
-    rows.push(
-      ['SCORE', scoring.score.toLocaleString('en-US')],
-      ['ACCURACY', accuracy === null ? '-' : `${accuracy.toFixed(1)}%`],
-      ['HITS', `${scoring.shotsHit} / ${scoring.shotsFired}`],
-      ['BEST COMBO', String(scoring.bestCombo)],
-      ['BULLSEYES', String(scoring.bullseyes)],
-    );
+    const accuracyText = accuracy === null ? '-' : `${accuracy.toFixed(1)}%`;
+    if (run.mode === 'oxygenRun' || run.siege) rows.push(['SURVIVED', formatTime(run.survived)]);
+    if (run.siege) {
+      rows.push(
+        ['DRONES DESTROYED', String(run.siege.kills)],
+        ['CORE KILLS', String(run.siege.coreKills)],
+        ['ACCURACY', accuracyText],
+        ['HITS', `${scoring.shotsHit} / ${scoring.shotsFired}`],
+      );
+    } else {
+      rows.push(
+        ['SCORE', scoring.score.toLocaleString('en-US')],
+        ['ACCURACY', accuracyText],
+        ['HITS', `${scoring.shotsHit} / ${scoring.shotsFired}`],
+        ['BEST COMBO', String(scoring.bestCombo)],
+        ['BULLSEYES', String(scoring.bullseyes)],
+      );
+    }
     this.render('results', 'center', `
-      <h2>${run.reason === 'oxygen' ? 'OXYGEN DEPLETED' : "TIME'S UP"}</h2>
+      <h2>${END_TITLES[run.reason]}</h2>
       <div class="hint">${MODE_NAMES[run.mode]}</div>
       ${run.newBest ? '<div class="new-best">NEW BEST</div>' : ''}
       <table>${rows.map(([a, b]) => `<tr><td>${a}</td><td class="big">${b}</td></tr>`).join('')}</table>
