@@ -36,6 +36,9 @@ export class Ejecta {
   private casings: Piece[] = [];
   private magazines: Piece[] = [];
   private casingMesh: THREE.InstancedMesh;
+  // Every dropped magazine is a copy of this one (they share its shape and materials).
+  // It sits in the scene hidden, so its shaders get compiled at load with everything else.
+  private magazineTemplate = buildMagazine();
   private ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
   private bounces: BounceEvent[] = [];
 
@@ -49,6 +52,8 @@ export class Ejecta {
     this.casingMesh.castShadow = true;
     this.casingMesh.frustumCulled = false;
     scene.add(this.casingMesh);
+    this.magazineTemplate.visible = false;
+    scene.add(this.magazineTemplate);
   }
 
   casing(position: THREE.Vector3, velocity: THREE.Vector3) {
@@ -62,7 +67,8 @@ export class Ejecta {
       const old = this.magazines.shift()!;
       this.scene.remove(old.object!);
     }
-    const mag = buildMagazine();
+    const mag = this.magazineTemplate.clone();
+    mag.visible = true;
     this.scene.add(mag);
     const position = new THREE.Vector3();
     const rotation = new THREE.Quaternion();

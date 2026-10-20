@@ -6,15 +6,14 @@ import type { HitResult, Target } from './target';
 
 const HULL = new THREE.MeshStandardMaterial({ color: 0x8a847a, roughness: 0.6, metalness: 0.2 });
 const DARK = new THREE.MeshStandardMaterial({ color: 0x2a2826, roughness: 0.7 });
+// The glowing eye. It has no real light: every light in the scene costs shading time on
+// every pixel on screen, and a lamp this small isn't worth it. Bloom makes it glow.
 const LAMP = new THREE.MeshStandardMaterial({ color: 0xffa31a, emissive: 0xff8a00, emissiveIntensity: 1.5 });
 
 // A small hovering drone that drifts along a slow looping path.
 export class DroneTarget implements Target {
   readonly collider: RAPIER.Collider;
   private body = new THREE.Group();
-  // Kept outside the body and dimmed (not hidden) when broken: changing how many
-  // lights are visible makes Three.js rebuild every shader, which causes a stutter.
-  private lamp = new THREE.PointLight(0xffa31a, 1.5, 4);
   private rotors: THREE.Mesh[] = [];
   private time: number;
   private brokenTimer = 0;
@@ -34,7 +33,7 @@ export class DroneTarget implements Target {
   ) {
     this.time = Math.random() * 100; // start each drone at a different point on its loop
     buildDrone(this.body, this.rotors);
-    scene.add(this.body, this.lamp);
+    scene.add(this.body);
     this.collider = world.createCollider(RAPIER.ColliderDesc.ball(CONFIG.targets.droneRadius));
     this.update(0);
   }
@@ -52,7 +51,6 @@ export class DroneTarget implements Target {
     this.body.rotation.z = Math.sin(t * 0.7) * 0.12; // a gentle wobble
     for (const rotor of this.rotors) rotor.rotation.y += dt * 30;
     this.collider.setTranslation(position);
-    this.lamp.position.set(position.x, position.y - 0.08, position.z + 0.3);
 
     if (this.brokenTimer > 0) {
       this.brokenTimer -= dt;
@@ -67,7 +65,6 @@ export class DroneTarget implements Target {
   hit(_point: THREE.Vector3, shotDirection: THREE.Vector3): HitResult {
     this.debris.shatterBlocks(this.body.position, shotDirection, [HULL, HULL, DARK, LAMP], 12);
     this.body.visible = false;
-    this.lamp.intensity = 0;
     this.collider.setEnabled(false);
     this.brokenTimer = CONFIG.targets.droneRespawnTime;
     return { points: CONFIG.targets.dronePoints, label: 'DRONE', bullseye: false };
@@ -82,7 +79,6 @@ export class DroneTarget implements Target {
 
   private show() {
     this.body.visible = true;
-    this.lamp.intensity = 1.5;
     this.collider.setEnabled(true);
     this.respawnScale = 0;
   }

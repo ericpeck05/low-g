@@ -95,15 +95,21 @@ export class Debris {
       const remaining = cfg.life - p.age;
       if (remaining < 0.8) p.mesh.scale.setScalar(Math.max(0.001, remaining / 0.8));
       if (remaining <= 0) {
-        this.scene.remove(p.mesh);
+        this.remove(p);
         this.pieces.splice(i, 1);
       }
     }
   }
 
   clear() {
-    for (const p of this.pieces) this.scene.remove(p.mesh);
+    for (const p of this.pieces) this.remove(p);
     this.pieces = [];
+  }
+
+  private remove(piece: Piece) {
+    this.scene.remove(piece.mesh);
+    // Drone blocks each have their own little box shape; free it. (Disc slices share theirs.)
+    if (!this.shardGeometries.includes(piece.mesh.geometry)) piece.mesh.geometry.dispose();
   }
 
   // push: the direction the hit knocks the pieces (on top of flying outward).

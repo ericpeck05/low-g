@@ -16,14 +16,14 @@ export interface Settings {
 export const QUALITY_PRESETS: Record<Quality, { label: string; note: string; maxPixelRatio: number; ambientOcclusion: boolean; shadowMapSize: number; antialiasSamples: number; rockDistance: number }> = {
   low: { label: 'LOW', note: 'Lower resolution, smaller shadows, no corner shading', maxPixelRatio: 0.75, ambientOcclusion: false, shadowMapSize: 2048, antialiasSamples: 0, rockDistance: 0.5 },
   medium: { label: 'MEDIUM', note: 'Full resolution, sharp shadows, no corner shading', maxPixelRatio: 1, ambientOcclusion: false, shadowMapSize: 4096, antialiasSamples: 4, rockDistance: 1 },
-  high: { label: 'HIGH', note: 'Sharpest image and soft corner shading (ambient occlusion)', maxPixelRatio: 2, ambientOcclusion: true, shadowMapSize: 4096, antialiasSamples: 4, rockDistance: 1.3 },
+  high: { label: 'HIGH', note: 'Sharper image and soft corner shading (ambient occlusion)', maxPixelRatio: 1.5, ambientOcclusion: true, shadowMapSize: 4096, antialiasSamples: 4, rockDistance: 1.3 },
 };
 
 const DEFAULTS: Settings = {
   sensitivity: CONFIG.look.sensitivity,
   fov: CONFIG.camera.fov,
   volume: 0.8,
-  quality: 'high',
+  quality: 'medium', // the 60 fps target for a normal laptop; High needs a strong graphics card
   showStats: false,
 };
 

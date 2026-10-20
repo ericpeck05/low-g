@@ -155,6 +155,49 @@ function prismPoints(radius: number, height: number, sides: number) {
   return new Float32Array(points);
 }
 
+/** Where one copy of a repeated prop goes: its center, and optionally its turn and tilt. */
+export interface Placement {
+  position: Vec3;
+  rotation?: THREE.Euler;
+}
+
+/**
+ * Many copies of one shape drawn as a single batch (an InstancedMesh): the graphics card
+ * gets the shape once, plus a list of where each copy goes. Used for repeated props like
+ * solar panels and lamps. No collision; add colliders separately where needed.
+ */
+export function instanced(
+  parent: THREE.Object3D,
+  geometry: THREE.BufferGeometry,
+  material: THREE.Material,
+  placements: Placement[],
+  castShadow = true,
+) {
+  const mesh = new THREE.InstancedMesh(geometry, material, placements.length);
+  const matrix = new THREE.Matrix4();
+  const rotation = new THREE.Quaternion();
+  const one = new THREE.Vector3(1, 1, 1);
+  placements.forEach(({ position, rotation: euler }, i) => {
+    rotation.setFromEuler(euler ?? new THREE.Euler());
+    matrix.compose(new THREE.Vector3(position.x, position.y, position.z), rotation, one);
+    mesh.setMatrixAt(i, matrix);
+  });
+  mesh.computeBoundingSphere(); // around all the copies, so the batch is culled as a whole
+  mesh.castShadow = castShadow;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+
+/** An invisible solid box: collision only (for props drawn with `instanced`). */
+export function boxCollider(world: RAPIER.World, center: Vec3, size: Vec3, rotation = new THREE.Euler()) {
+  world.createCollider(
+    RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
+      .setTranslation(center.x, center.y, center.z)
+      .setRotation(new THREE.Quaternion().setFromEuler(rotation)),
+  );
+}
+
 /**
  * A tower facade: dark wall with rows of windows, some lit warm white or amber.
  * Returns a color map and a glow map; the glow map makes lit windows bloom.

@@ -228,6 +228,13 @@ export const CONFIG = {
     threshold: 1.0, // only things brighter than this glow (lit windows, light strips), not sunlit ground
   },
 
+  // The last touches on every frame, like a camera lens and film.
+  film: {
+    grain: 0.05, // strength of the film grain in mid-tones (0 = none); black stays black
+    vignette: 0.28, // how much the corners darken (0 = none, 1 = black)
+    vignetteStart: 0.45, // where the darkening begins: 0 = screen center, 1 = the corners
+  },
+
   sky: {
     starCount: 4500,
     earthDistance: 1500,
@@ -240,6 +247,7 @@ export const CONFIG = {
     elevation: 24, // degrees above the horizon: low, so shadows are long
     bearing: 50, // degrees around from the spawn view
     shadowRange: 70, // meters around the player that get sharp shadows
+    shadowHeight: 30, // walls and rooftops up to this many meters tall get them too
     shadowMapSize: 4096,
   },
 

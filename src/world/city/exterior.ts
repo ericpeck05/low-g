@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { CONFIG } from '../../config';
 import { ANTENNAS, LANDING_PAD, MODULES_CENTER, SOLAR_FIELD } from './layout';
-import { MATERIALS, lightStrip, pavingTexture, solidBox, solidCylinder, solidTiltedBox, solidTube } from './kit';
+import { MATERIALS, type Placement, boxCollider, instanced, lightStrip, pavingTexture, solidBox, solidCylinder, solidTube } from './kit';
 
 // Everything outside the dome: the landing pad and lander, solar arrays,
 // habitat modules joined by tubes, and antenna masts. Returns an update
@@ -30,11 +30,13 @@ function buildLandingPad(scene: THREE.Object3D, world: RAPIER.World) {
   // Low enough (0.3 m) to step onto.
   const top = new THREE.MeshStandardMaterial({ map: padMarkings(), roughness: 0.8 });
   solidCylinder(scene, world, x, 0, z, radius, 0.3, [MATERIALS.trim, top, MATERIALS.trim], 48);
-  // Edge lights.
+  // Edge lights, drawn as one batch.
+  const lights: Placement[] = [];
   for (let i = 0; i < 24; i++) {
     const a = (i / 24) * Math.PI * 2;
-    lightStrip(scene, { x: x + Math.sin(a) * (radius - 0.4), y: 0.36, z: z + Math.cos(a) * (radius - 0.4) }, { x: 0.3, y: 0.1, z: 0.3 }, MATERIALS.amberLight);
+    lights.push({ position: { x: x + Math.sin(a) * (radius - 0.4), y: 0.36, z: z + Math.cos(a) * (radius - 0.4) } });
   }
+  instanced(scene, new THREE.BoxGeometry(0.3, 0.1, 0.3), MATERIALS.amberLight, lights, false);
 
   // Paved path from the south airlock to the pad.
   const pathStart = CONFIG.city.domeRadius + 9;
@@ -112,20 +114,44 @@ function buildLander(scene: THREE.Object3D, world: RAPIER.World, lx: number, lz:
   }
 }
 
+// Rows of solar panels on legs. Every panel is a copy of the same shape, so the whole
+// field (over 700 panels) is drawn in one batch.
 function buildSolarField(scene: THREE.Object3D, world: RAPIER.World) {
   const { xStart, rows, rowSpacing, halfLength } = SOLAR_FIELD;
   const tilt = THREE.MathUtils.degToRad(40);
+  const rowTilt = new THREE.Euler(0, 0, -tilt); // rows lean toward the sun in the east
+  const panelWidth = 1.75; // up the slope; two panels make a row 3.5 m wide
+  const panelLength = 1; // along the row
+  const gap = 0.04;
   // Glass-covered cells: glossy, so the rows mirror the bright ground and glint in the sun.
-  const material = new THREE.MeshStandardMaterial({ map: solarCells(), roughness: 0.12, metalness: 0.25 });
-  material.map!.repeat.set(1, (halfLength * 2) / 4);
+  const cells = solarCells();
+  cells.repeat.set(2.5, 1.5); // 10 x 6 cells per panel
+  const glass = new THREE.MeshStandardMaterial({ map: cells, roughness: 0.12, metalness: 0.25 });
+
+  const panels: Placement[] = [];
+  const legs: Placement[] = [];
   for (let r = 0; r < rows; r++) {
     const x = xStart - r * rowSpacing;
-    // Rows run north to south and lean toward the sun in the east.
-    solidTiltedBox(scene, world, new THREE.Vector3(x, 2.2, 0), { x: 3.6, y: 0.12, z: halfLength * 2 }, new THREE.Euler(0, 0, -tilt), material);
+    for (let z = -halfLength + panelLength / 2; z <= halfLength - panelLength / 2; z += panelLength + gap) {
+      for (const side of [-1, 1]) {
+        const offset = side * (panelWidth + gap) * 0.5; // up or down the slope
+        panels.push({ position: { x: x + Math.cos(tilt) * offset, y: 2.2 - Math.sin(tilt) * offset, z }, rotation: rowTilt });
+      }
+    }
+    // The rail the panels sit on, and one solid slab for walking and shooting into.
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, halfLength * 2), MATERIALS.darkMetal);
+    rail.position.set(x - Math.sin(tilt) * 0.09, 2.2 - Math.cos(tilt) * 0.09, 0);
+    rail.rotation.copy(rowTilt);
+    rail.castShadow = rail.receiveShadow = true;
+    scene.add(rail);
+    boxCollider(world, { x, y: 2.2, z: 0 }, { x: panelWidth * 2, y: 0.12, z: halfLength * 2 }, rowTilt);
     for (let z = -halfLength + 2; z <= halfLength - 2; z += 8) {
-      solidBox(scene, world, { x, y: 1.05, z }, { x: 0.2, y: 2.1, z: 0.2 }, MATERIALS.darkMetal);
+      legs.push({ position: { x, y: 1.05, z } });
+      boxCollider(world, { x, y: 1.05, z }, { x: 0.2, y: 2.1, z: 0.2 });
     }
   }
+  instanced(scene, new THREE.BoxGeometry(panelWidth, 0.05, panelLength), glass, panels);
+  instanced(scene, new THREE.BoxGeometry(0.2, 2.1, 0.2), MATERIALS.darkMetal, legs);
 }
 
 function buildModules(scene: THREE.Object3D, world: RAPIER.World) {

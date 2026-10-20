@@ -18,6 +18,7 @@ import { Scoring } from './targets/scoring';
 import { TargetManager } from './targets/targetManager';
 import { placeCityTargets } from './targets/cityTargets';
 import { Hud } from './ui/hud';
+import { loading } from './ui/loading';
 import { Menu } from './ui/menu';
 import type { HitResult } from './targets/target';
 import { Ejecta } from './weapons/ejecta';
@@ -35,15 +36,24 @@ import { buildCity } from './world/city';
 import { isInsideDome } from './world/city/dome';
 
 async function boot() {
+  // Each step shows on the loading screen. The fractions are how far along the whole
+  // load is when that step starts (measured: the terrain and the sky take longest).
+  await loading.step(0.02, 'STARTING PHYSICS');
   const world = await createPhysicsWorld();
   const { renderer, scene, camera } = createScene();
+  renderer.info.autoReset = false; // counted per frame (not per pass) for the F3 readout
+  await loading.step(0.04, 'SHAPING THE TERRAIN');
   buildTerrain(scene, world);
+  await loading.step(0.3, 'SCATTERING ROCKS');
   const rocks = scatterRocks(scene, world);
+  await loading.step(0.4, 'BUILDING THE CITY');
   const city = buildCity(scene, world);
+  await loading.step(0.42, 'LIGHTING THE SKY');
   // Reflections and fill light come from the sunlit ground, not the black sky.
   scene.environment = createEnvironment(renderer);
   const sun = new Sun(scene);
   const sky = new Sky(scene);
+  await loading.step(0.7, 'ASSEMBLING THE RIFLE');
 
   const input = new Input(renderer.domElement);
   const look = new Look();
@@ -67,15 +77,17 @@ async function boot() {
   const footsteps = new Footsteps(scene, impacts);
   const targets = new TargetManager(scene, world);
   placeCityTargets(targets);
-  const composer = createComposer(renderer, scene, camera);
+  const composer = createComposer(renderer, scene, camera, viewmodel);
   composer.excludeFromAO(sky.group, city.glass, footsteps.prints, ...impacts.objects);
   const scoring = new Scoring();
   const session = new Session();
   const oxygen = new Oxygen();
   let inside = true; // breathing dome air (inside the dome or an airlock chamber)
   const hud = new Hud();
+  await loading.step(0.71, 'RECORDING SOUNDS');
   const audio = new GameAudio();
   let lastReloadProgress = 0; // for timing reload sounds to the animation
+  let frameTime = 1 / 60; // how long the last frame really took, for the F3 readout
   const menu = new Menu({
     start: startRun,
     resume: () => lockMouse(),
@@ -280,14 +292,20 @@ async function boot() {
       heading: (((-THREE.MathUtils.radToDeg(look.yaw)) % 360) + 360) % 360,
       mouse,
       showStats: settings.get().showStats,
+      frameTime,
+      render: {
+        calls: renderer.info.render.calls,
+        triangles: renderer.info.render.triangles,
+        width: renderer.domElement.width,
+        height: renderer.domElement.height,
+        quality: settings.get().quality.toUpperCase(),
+      },
     });
 
-    // Draw the world (with bloom), then the gun on top of it (not behind the main menu).
-    composer.render(dt);
-    if (!backdrop) {
-      renderer.clearDepth();
-      renderer.render(viewmodel.scene, viewmodel.camera);
-    }
+    // Draw the world with the gun on top (no gun behind the main menu). The draw counts
+    // add up over the frame's several passes, for the F3 readout.
+    renderer.info.reset();
+    composer.render(dt, !backdrop);
     input.endFrame();
   }
 
@@ -373,21 +391,41 @@ async function boot() {
     document.exitPointerLock();
   }
 
+  // Compile every shader now, behind the loading screen. Otherwise each one compiles the
+  // first time its object is drawn, which freezes the game for a moment mid-play.
+  await loading.step(0.82, 'PREPARING SHADERS');
+  // The world draws into the post-processing image, not straight to the screen, and
+  // shaders are built differently for each, so compile them for that image.
+  renderer.setRenderTarget(composer.composer.renderTarget1);
+  await renderer.compileAsync(scene, camera);
+  await renderer.compileAsync(viewmodel.scene, viewmodel.camera);
+  renderer.setRenderTarget(null);
+  // Drawing one frame, gun included, compiles the rest (shadows and post-processing).
+  await loading.step(0.94, 'PRESSURIZING THE DOME');
+  tick(0);
+  composer.render(0, true);
+
   // The game loop runs once per screen refresh.
   // Cap the frame time so a stall can't make us skip through walls.
   const timer = new THREE.Timer();
   renderer.setAnimationLoop((time) => {
     timer.update(time);
-    tick(Math.min(timer.getDelta(), CONFIG.maxFrameTime));
+    frameTime = timer.getDelta();
+    tick(Math.min(frameTime, CONFIG.maxFrameTime));
   });
+  await loading.step(1, 'READY');
+  loading.done();
 
   // Dev-only handle for poking at the game from the browser console.
   // lowg.tick(1 / 60) advances one frame by hand, which is handy for testing.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      lowg: { renderer, scene, composer, audio, ejecta, input, look, player, camera, world, city, oxygen, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, tick, startRun },
+      lowg: { renderer, scene, composer, audio, ejecta, input, look, player, camera, world, city, oxygen, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, settings, sun, rocks, sky, tick, startRun },
     });
   }
 }
 
-boot();
+boot().catch((error) => {
+  console.error(error);
+  loading.fail(error);
+});

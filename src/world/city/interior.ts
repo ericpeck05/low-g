@@ -11,7 +11,18 @@ import {
 } from './layout';
 import { patchTriplanar } from '../../core/materialPatches';
 import { concreteDetail } from '../detailTextures';
-import { MATERIALS, lightStrip, pavingTexture, solidBox, solidCylinder, solidTiltedBox, windowTextures } from './kit';
+import {
+  MATERIALS,
+  type Placement,
+  boxCollider,
+  instanced,
+  lightStrip,
+  pavingTexture,
+  solidBox,
+  solidCylinder,
+  solidTiltedBox,
+  windowTextures,
+} from './kit';
 
 // Everything under the dome: paving, the central plaza and beacon, towers,
 // the ring of walkways between them, ramps, lamps, and the indoor shooting range.
@@ -59,14 +70,19 @@ function buildPlaza(scene: THREE.Object3D, world: RAPIER.World) {
   glow.position.set(0, 7, 0);
   scene.add(glow);
 
-  // Lamp posts around the plaza.
+  // Lamp posts around the plaza: one batch for the posts, one for the lights on top.
+  const posts: Placement[] = [];
+  const lamps: Placement[] = [];
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
     const x = Math.sin(a) * (PLAZA_RADIUS + 3);
     const z = Math.cos(a) * (PLAZA_RADIUS + 3);
-    solidBox(scene, world, { x, y: 2, z }, { x: 0.2, y: 4, z: 0.2 }, MATERIALS.darkMetal);
-    lightStrip(scene, { x, y: 4.1, z }, { x: 0.6, y: 0.2, z: 0.6 }, MATERIALS.whiteLight);
+    posts.push({ position: { x, y: 2, z } });
+    lamps.push({ position: { x, y: 4.1, z } });
+    boxCollider(world, { x, y: 2, z }, { x: 0.2, y: 4, z: 0.2 });
   }
+  instanced(scene, new THREE.BoxGeometry(0.2, 4, 0.2), MATERIALS.darkMetal, posts);
+  instanced(scene, new THREE.BoxGeometry(0.6, 0.2, 0.6), MATERIALS.whiteLight, lamps, false);
 
   // Benches facing the beacon.
   for (let i = 0; i < 4; i++) {

@@ -26,6 +26,8 @@ export interface HudState {
   heading: number; // compass degrees, 0 = north (toward -z), 90 = east
   mouse: { x: number; y: number };
   showStats: boolean;
+  frameTime: number; // seconds the last frame really took (dt is capped, this isn't)
+  render: { calls: number; triangles: number; width: number; height: number; quality: string };
 }
 
 const COMPASS_PX_PER_DEGREE = 3;
@@ -276,13 +278,16 @@ export class Hud {
 
   private updateStats(s: HudState) {
     this.el.stats.style.display = s.showStats ? 'block' : 'none';
-    this.frameTimes.push(s.dt);
+    this.frameTimes.push(s.frameTime);
     if (this.frameTimes.length > 60) this.frameTimes.shift();
     if (!s.showStats) return;
     const average = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
+    const worst = Math.max(...this.frameTimes); // the slowest of the last 60: shows stutters
     const p = s.player;
+    const r = s.render;
     this.el.stats.textContent =
-      `FPS ${Math.round(1 / average)}  (${(average * 1000).toFixed(1)} ms)\n` +
+      `FPS ${Math.round(1 / average)}  (${(average * 1000).toFixed(1)} ms, worst ${(worst * 1000).toFixed(0)})\n` +
+      `${r.quality} ${r.width}x${r.height}  ${r.calls} draws  ${Math.round(r.triangles / 1000)}k tris\n` +
       `speed  ${p.horizontalSpeed.toFixed(1)} m/s\n` +
       `height ${p.feet.y.toFixed(2)} m\n` +
       `vert   ${p.velocity.y >= 0 ? '+' : ''}${p.velocity.y.toFixed(2)} m/s\n` +
