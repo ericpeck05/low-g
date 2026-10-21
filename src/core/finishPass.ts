@@ -29,6 +29,7 @@ const fragmentShader = /* glsl */ `
   uniform float vignette;
   uniform float vignetteStart;
   uniform float seed;
+  uniform vec3 tint;
   varying vec2 vUv;
 
   // A cheap random number from 0 to 1 for each pixel (no sine, so it's the same on every GPU).
@@ -47,6 +48,9 @@ const fragmentShader = /* glsl */ `
 
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
+
+    // A color grade over everything (white normally; Drone Siege's swarm rounds turn it red).
+    gl_FragColor.rgb *= tint;
 
     // Vignette: darker toward the corners, like a real lens.
     float fromCenter = length(vUv - 0.5) * 1.4142; // 0 at the center, 1 in the corners
@@ -82,6 +86,7 @@ export class FinishPass extends Pass {
         vignette: { value: CONFIG.film.vignette },
         vignetteStart: { value: CONFIG.film.vignetteStart },
         seed: { value: 0 },
+        tint: { value: new THREE.Color(1, 1, 1) },
       },
       vertexShader,
       fragmentShader,
@@ -101,6 +106,11 @@ export class FinishPass extends Pass {
     u.seed.value = Math.random() * 1000; // new grain every frame
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     this.quad.render(renderer);
+  }
+
+  /** Multiply the whole picture by this color (white for none). */
+  setTint(color: THREE.Color) {
+    this.material.uniforms.tint.value.copy(color);
   }
 
   dispose() {

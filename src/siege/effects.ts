@@ -91,16 +91,16 @@ export class SiegeEffects {
     return this.flashes.map((f) => f.sprite);
   }
 
-  /** A drone blowing apart at `position`, moving at `velocity`. */
-  explode(position: THREE.Vector3, velocity: THREE.Vector3) {
+  /** A drone blowing apart at `position`, moving at `velocity`. size: 1 for a scout, bigger for bigger blasts. */
+  explode(position: THREE.Vector3, velocity: THREE.Vector3, size = 1) {
     const cfg = CONFIG.siege.explosion;
-    this.flash(position, 3.6, cfg.flashTime);
-    this.flash(position, 1.4, cfg.flashTime * 2.2); // a smaller, longer afterglow
+    this.flash(position, 3.6 * size, cfg.flashTime * Math.sqrt(size));
+    this.flash(position, 1.4 * size, cfg.flashTime * 2.2); // a smaller, longer afterglow
     this.light.position.copy(position);
-    this.light.intensity = cfg.lightIntensity;
+    this.light.intensity = cfg.lightIntensity * Math.min(2, size);
     this.lightTime = cfg.flashTime;
-    this.impacts.burst(position, cfg.sparks, 9, 1.4);
-    for (let i = 0; i < cfg.debris; i++) {
+    this.impacts.burst(position, Math.round(cfg.sparks * size), 9 * Math.sqrt(size), 1.4);
+    for (let i = 0; i < Math.round(cfg.debris * size); i++) {
       const piece = this.pieces[this.nextPiece];
       this.nextPiece = (this.nextPiece + 1) % this.pieces.length; // reuse the oldest when full
       const out = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.25, Math.random() - 0.5).normalize();
@@ -122,9 +122,9 @@ export class SiegeEffects {
     this.impacts.metalSparks(point, normal, 7, HOT_SPARK);
   }
 
-  /** A small flash where a drone arrives. */
-  arrive(position: THREE.Vector3) {
-    this.flash(position, 1.6, 0.3);
+  /** A small flash where a drone arrives (bigger for a bigger drone). */
+  arrive(position: THREE.Vector3, size = 1.6) {
+    this.flash(position, size, 0.3);
   }
 
   update(dt: number) {

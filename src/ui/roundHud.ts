@@ -1,11 +1,12 @@
 import { formatTime } from '../core/highScores';
-import type { RoundDirector } from '../siege/rounds';
+import type { RoundDirector, RoundKind } from '../siege/rounds';
 import type { Hud } from './hud';
 import './round.css';
 
 // Drone Siege's round readouts: a big red round counter (tally marks for the first five
-// rounds, then numbers, a nod to Zombies) with the drones left to destroy, and a banner
-// across the visor when a round starts or is cleared.
+// rounds, then numbers, a nod to Zombies) with the drones left to destroy, a banner
+// across the visor when a round starts or is cleared, and the carrier's weak points
+// under the compass while one is out.
 
 export class RoundHud {
   private counter: HTMLElement;
@@ -14,6 +15,8 @@ export class RoundHud {
   private banner: HTMLElement;
   private title: HTMLElement;
   private subtitle: HTMLElement;
+  private boss: HTMLElement;
+  private bossBars: HTMLElement[] = [];
   private shownRound = -1;
   private bannerTime = 0;
 
@@ -31,28 +34,52 @@ export class RoundHud {
     this.title = this.banner.querySelector('.title')!;
     this.subtitle = this.banner.querySelector('.subtitle')!;
     hud.addOverlay(this.banner);
+
+    this.boss = document.createElement('div');
+    this.boss.className = 'boss-bar';
+    this.boss.innerHTML = `<div class="name">CARRIER · WEAK POINTS</div><div class="points"></div>`;
+    hud.addOverlay(this.boss);
     this.setActive(false);
   }
 
   setActive(active: boolean) {
     this.counter.style.display = active ? 'block' : 'none';
+    this.boss.style.display = 'none';
     this.banner.style.opacity = '0';
     this.bannerTime = 0;
     this.shownRound = -1;
   }
 
-  roundStarted(round: number) {
-    this.announce(`ROUND ${round}`, round === 1 ? 'HOSTILE DRONES INBOUND' : 'HOSTILES INBOUND', 2.6);
+  roundStarted(round: number, kind: RoundKind) {
+    const subtitle = kind === 'swarm' ? 'SWARM · KAMIKAZE DRONES INBOUND' : kind === 'carrier' ? 'CARRIER INBOUND · HIT ITS WEAK POINTS' : round === 1 ? 'HOSTILE DRONES INBOUND' : 'HOSTILES INBOUND';
+    this.announce(kind === 'swarm' ? `ROUND ${round} · SWARM` : `ROUND ${round}`, subtitle, 3);
+    this.counter.classList.toggle('swarm', kind === 'swarm');
     this.counter.classList.remove('flash');
     void this.counter.offsetWidth; // restart the animation
     this.counter.classList.add('flash');
   }
 
-  roundEnded(round: number) {
-    this.announce(`ROUND ${round} CLEARED`, '', 3);
+  roundEnded(round: number, kind: RoundKind) {
+    this.announce(`ROUND ${round} CLEARED`, kind === 'swarm' ? 'MAX AMMO' : kind === 'carrier' ? 'CARRIER DESTROYED' : '', 3);
+    this.counter.classList.remove('swarm');
   }
 
-  update(dt: number, rounds: RoundDirector) {
+  /** A short message on the banner (a power-up, a reward). */
+  callout(title: string, subtitle = '') {
+    this.announce(title, subtitle, 2.2);
+  }
+
+  // boss: each carrier weak point's health left (0 to 1), or null with no carrier out.
+  update(dt: number, rounds: RoundDirector, boss: number[] | null) {
+    this.boss.style.display = boss ? 'block' : 'none';
+    if (boss) {
+      if (this.bossBars.length !== boss.length) {
+        const holder = this.boss.querySelector('.points')!;
+        holder.innerHTML = '<i><b></b></i>'.repeat(boss.length);
+        this.bossBars = [...holder.querySelectorAll<HTMLElement>('b')];
+      }
+      boss.forEach((share, k) => (this.bossBars[k].style.width = `${(share * 100).toFixed(1)}%`));
+    }
     if (rounds.round !== this.shownRound) {
       this.shownRound = rounds.round;
       this.mark.innerHTML = rounds.round === 0 ? '' : rounds.round <= 5 ? tally(rounds.round) : `<span>${rounds.round}</span>`;

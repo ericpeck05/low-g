@@ -18,3 +18,16 @@
 .round-banner .title { color: var(--hostile); font-size: 46px; font-weight: 700; letter-spacing: 0.24em;
   text-shadow: 0 0 18px rgba(255, 60, 30, 0.7), 0 0 2px #000; }
 .round-banner .subtitle { color: var(--white); font-size: 14px; letter-spacing: 0.3em; margin-top: 8px; }
+
+/* Swarm rounds: the counter turns orange and flickers. */
+.round-counter.swarm { color: var(--orange); }
+.round-counter.swarm .mark { animation: hud-blink 0.9s steps(2) infinite; }
+
+/* The carrier's weak points, under the compass while it's out. */
+.boss-bar { position: absolute; left: 50%; top: 92px; transform: translateX(-50%); width: 360px; display: none;
+  text-align: center; }
+.boss-bar .name { color: var(--hostile); font-size: 11px; letter-spacing: 0.22em; margin-bottom: 6px;
+  text-shadow: 0 0 8px rgba(255, 60, 30, 0.6); }
+.boss-bar .points { display: flex; gap: 6px; }
+.boss-bar i { flex: 1; height: 8px; background: rgba(255, 74, 42, 0.18); border: 1px solid rgba(255, 74, 42, 0.5); }
+.boss-bar b { display: block; height: 100%; background: var(--hostile); box-shadow: 0 0 8px rgba(255, 60, 30, 0.8); }

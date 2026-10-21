@@ -364,10 +364,24 @@ export const CONFIG = {
       maxLead: 0.85, // ...up to this
     },
 
-    // Which drone types can appear, from which round, and how often (relative weights).
-    // More types arrive in Siege phase 4.
+    // Which drone types can appear in ordinary rounds, from which round, and how often
+    // (relative weights). Kamikazes only come in swarm rounds, carriers in carrier rounds.
     roster: {
       scout: { fromRound: 1, weight: 1 },
+      gunner: { fromRound: 4, weight: 0.45 },
+      shielded: { fromRound: 8, weight: 0.35 },
+      sniper: { fromRound: 10, weight: 0.22 },
+      repair: { fromRound: 12, weight: 0.15 },
+    },
+
+    // Special rounds, like Zombies' dog rounds and boss waves.
+    special: {
+      swarmGap: [5, 7], // a swarm round comes every 5 to 7 rounds (the first in round 5 to 7)
+      swarmDrones: [10, 2.2], // kamikazes in a swarm round: base + per round × round number
+      swarmAlive: 10, // most kamikazes flying at once
+      swarmInterval: 0.45, // seconds between them arriving
+      carrierEvery: 10, // a carrier (the boss) leads every 10th round...
+      carrierEscort: 0.5, // ...with this share of the round's usual drones
     },
 
     glowColor: [1, 0.05, 0.03], // hostile red (red, green, blue)
@@ -394,6 +408,64 @@ export const CONFIG = {
       aimSpread: 2.2, // degrees of random aim error
       aimLead: 0.5, // 0 aims where you are, 1 aims where you'll be when the bolt arrives
       sightRange: 50, // meters: no shooting from farther than this
+    },
+
+    // Bulkier, tougher, closer in, and fires its bolts in bursts.
+    gunner: {
+      health: 230, speed: 5, acceleration: 6, range: [10, 16], height: [2, 6], strafeSpeed: 3,
+      fireInterval: [2.8, 3.8], telegraph: 0.7, aimSpread: 3.4, aimLead: 0.35, sightRange: 45,
+      burst: 4, // bolts per burst...
+      burstGap: 0.13, // ...this many seconds apart
+    },
+
+    // Carries an energy shield on its front that stops shots. It flies shield-first and
+    // only turns to face you to shoot, so hit it from the side or behind.
+    shielded: {
+      health: 170, speed: 5.5, acceleration: 6, range: [12, 19], height: [2.5, 7], strafeSpeed: 3.6,
+      fireInterval: [2.4, 3.6], telegraph: 0.6, aimSpread: 2.4, aimLead: 0.45, sightRange: 50,
+      shieldArc: 70, // degrees either side of straight ahead that the shield covers
+      turnRate: 1.4, // radians per second it can turn (slow, so you can get round it)
+    },
+
+    // Hangs far back and charges a red aiming beam, then fires one hard shot down it.
+    // The beam stops following you just before it fires: move then. Breaking line of sight cancels it.
+    sniper: {
+      health: 120, speed: 4, acceleration: 5, range: [34, 52], height: [8, 15], strafeSpeed: 1.6,
+      fireInterval: [4, 6], telegraph: 1.5, aimSpread: 0, aimLead: 0, sightRange: 90,
+      lockTime: 0.4, // seconds before the shot that the beam stops tracking you
+      damage: 45,
+    },
+
+    // Doesn't attack: it keeps near the most damaged drone and repairs everything close by.
+    repair: {
+      health: 140, speed: 6, acceleration: 7, range: [18, 26], height: [4, 9], strafeSpeed: 2.5,
+      fireInterval: [99, 99], telegraph: 0, aimSpread: 0, aimLead: 0, sightRange: 60,
+      healRate: 22, // health per second given to each drone in reach
+      healRange: 9, // meters
+      keepAway: 12, // meters it tries to stay from you
+    },
+
+    // Swarm rounds only: small, fast, and they fly straight at you and blow up.
+    kamikaze: {
+      health: 35, speed: 11, acceleration: 14, range: [0, 0], height: [0, 1], strafeSpeed: 0,
+      fireInterval: [99, 99], telegraph: 0, aimSpread: 0, aimLead: 0, sightRange: 80,
+      triggerDistance: 1.6, // meters from you it detonates
+      blastRadius: 3, // meters
+      damage: 28, // when it reaches you; less if it goes off farther away
+    },
+
+    // The boss: a big armored drone that launches scouts from its bay. Shots barely
+    // scratch its armor; destroy its glowing weak points instead.
+    carrier: {
+      health: 1, speed: 3, acceleration: 3, range: [24, 34], height: [13, 20], strafeSpeed: 2,
+      fireInterval: [3.5, 5], telegraph: 0.9, aimSpread: 4, aimLead: 0.3, sightRange: 80,
+      weakPoints: 3,
+      weakPointHealth: 650, // each (grows with the round like other drones' health)
+      armor: 0.06, // share of damage that gets through the armor
+      launchInterval: 7, // seconds between scouts launched from its bay
+      maxLaunched: 4, // most of its scouts alive at once
+      fan: 5, // bolts in each spread of shots
+      points: 1500, // for destroying it (plus kill points for each weak point)
     },
 
     bolt: {

@@ -24,6 +24,7 @@ import { RoundHud } from './ui/roundHud';
 import { SuitHud } from './ui/suitHud';
 import { type DroneHit, type SiegeEvent, type SiegePlayer, SiegeMode } from './siege/siege';
 import { WeaponStations } from './siege/stations';
+import { AlertLighting } from './siege/alertLighting';
 import type { HitResult } from './targets/target';
 import { Ejecta } from './weapons/ejecta';
 import { applySpread, castShot } from './weapons/hitscan';
@@ -151,6 +152,8 @@ async function boot() {
   const MUZZLE_LIGHT = { rifle: 14, sidearm: 10, smg: 8, scatter: 22, carbine: 14, rail: 26 }; // how bright, per gun
   const CASING_SIZE: Partial<Record<string, number>> = { sidearm: 0.75, scatter: 2 }; // shells are bigger than rifle cases
   scene.add(muzzleLight);
+  // Swarm rounds turn the city's lights red (not the gun's flash or explosions).
+  const alertLighting = new AlertLighting(scene, composer.setTint, [muzzleLight, siege.effects.light]);
 
   async function lockMouse() {
     audio.unlock(); // browsers only allow sound after a click, and this runs from one
@@ -208,11 +211,23 @@ async function boot() {
       else if (event.kind === 'whiz') audio.boltWhiz(event.position);
       else if (event.kind === 'spawnWarning') audio.spawnWarning(event.position);
       else if (event.kind === 'roundStart') {
-        audio.roundStart();
-        roundHud.roundStarted(event.round);
+        if (event.special === 'normal') audio.roundStart();
+        else audio.specialRound(event.special);
+        roundHud.roundStarted(event.round, event.special);
       } else if (event.kind === 'roundEnd') {
         audio.roundEnd();
-        roundHud.roundEnded(event.round);
+        roundHud.roundEnded(event.round, event.special);
+      } else if (event.kind === 'shieldBlock') audio.shieldBlock(event.position);
+      else if (event.kind === 'sniperAim') audio.sniperAim(event.position);
+      else if (event.kind === 'sniperShot') audio.sniperShot(event.position);
+      else if (event.kind === 'launch') audio.carrierLaunch(event.position);
+      else if (event.kind === 'blast' || event.kind === 'weakPoint') audio.droneExplosion(event.position);
+      else if (event.kind === 'beep') audio.kamikazeBeep(event.position);
+      else if (event.kind === 'carrierDown') audio.carrierDown(event.position);
+      else if (event.kind === 'maxAmmo') {
+        // Every gun you carry: full magazine, full spares.
+        for (const gun of loadout.slots) gun?.refill();
+        audio.maxAmmo();
       }
       else if (event.kind === 'playerHit') {
         audio.suitHit();
@@ -345,6 +360,8 @@ async function boot() {
     });
     impacts.update(playing ? dt : 0, camera);
     tracers.update(playing ? dt : 0);
+    const swarm = session.mode === 'siege' && session.state === 'playing' && siege.rounds.kind === 'swarm' && siege.rounds.state === 'fighting';
+    alertLighting.update(dt, swarm);
     if (playing) {
       ejecta.update(dt);
       for (const bounce of ejecta.takeBounces()) {
@@ -365,7 +382,7 @@ async function boot() {
     });
     if (session.mode === 'siege') {
       suitHud.update(playing ? dt : 0, siege.suit, player.feet, look.yaw);
-      roundHud.update(playing ? dt : 0, siege.rounds);
+      roundHud.update(playing ? dt : 0, siege.rounds, siege.boss);
     }
     hud.update({
       dt,
@@ -474,12 +491,14 @@ async function boot() {
       const hit = castShot(world, camera.position, direction, spec.range, player.collider, passes);
       if (!hit) break;
       const distance = camera.position.distanceTo(hit.point);
-      const drone = session.mode === 'siege' ? siege.tryHit(hit.collider, damageAt(spec, distance)) : null;
+      const drone = session.mode === 'siege' ? siege.tryHit(hit.collider, damageAt(spec, distance), direction) : null;
       if (drone) {
-        drones.push(drone);
         impacts.metalSparks(hit.point, hit.normal, drone.core ? 14 : 8);
-        if (!drone.destroyed) audio.impact(hit.point);
         end = hit.point;
+        // A shield stops everything, even a rail shot.
+        if (drone.blocked) break;
+        drones.push(drone);
+        if (!drone.destroyed) audio.impact(hit.point);
         if (drones.length >= spec.pierce) break;
         for (const handle of drone.colliders) passedThrough.add(handle);
         continue;

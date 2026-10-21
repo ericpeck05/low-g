@@ -1,99 +1,156 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config';
+import type { DroneDesign } from './droneDesigns';
 import { glowTexture } from './glowTexture';
 
-// Draws every hostile drone at once. Each part of the drone (the dark body, the red
-// glow, the spinning rotors) is one InstancedMesh holding a copy per drone, so the whole
-// fleet costs three draws no matter how many are flying. Drones face down their -z axis.
+// Draws every hostile drone of one type at once. Each part (the dark body, the red glow,
+// the spinning rotors, and a shield or weak points if the type has them) is one
+// InstancedMesh holding a copy per drone, so a whole fleet costs a handful of draws no
+// matter how many are flying. A fleet with no drones out isn't drawn at all.
 
-/** Where the glowing core sits on the drone, in its own space. It's the weak point. */
-export const CORE_OFFSET = new THREE.Vector3(0, -0.03, -0.36);
-export const CORE_RADIUS = 0.14; // the hit area, a little bigger than the glowing ball you see
-export const BODY_RADIUS = 0.4;
-const CORE_VISIBLE_RADIUS = 0.115;
-
-const ROTORS = 4;
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
-const ROTOR_TIPS = Array.from({ length: ROTORS }, (_, i) => {
-  const angle = (i / ROTORS) * Math.PI * 2 + Math.PI / 4;
-  return new THREE.Vector3(Math.cos(angle) * 0.52, 0.08, Math.sin(angle) * 0.52);
-});
-
 const BODY = new THREE.MeshStandardMaterial({ color: 0x2b2927, roughness: 0.45, metalness: 0.6 });
 // Unlit and brighter than white, so bloom makes it glow. Its color is set per drone.
 const GLOW = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true });
+
+/** How one drone looks this frame. */
+export interface DroneLook {
+  glow: number; // 0 normally, rising to 1 as it charges a shot
+  spin: number; // rotor angle, radians
+  shieldFlash?: number; // 0 to 1: a shot just hit the shield
+  weakPoints?: boolean[]; // the carrier: which weak points are still intact
+}
 
 export class DroneFleet {
   readonly group = new THREE.Group();
   private body: THREE.InstancedMesh;
   private glow: THREE.InstancedMesh;
-  private rotors: THREE.InstancedMesh;
-  // A soft red glow around each core, so drones read as hostile even far away.
-  private halos: THREE.Sprite[] = [];
+  private rotors: THREE.InstancedMesh | null = null;
+  private shield: THREE.InstancedMesh | null = null;
+  private points: THREE.InstancedMesh | null = null; // the carrier's weak points
+  private halos: THREE.Sprite[][] = []; // per drone: one round the core, or one per weak point
+  private live = new Set<number>();
+  private shown = false;
   private matrix = new THREE.Matrix4();
   private part = new THREE.Matrix4();
   private color = new THREE.Color();
   private red = new THREE.Color(...CONFIG.siege.glowColor);
+  private haloPoints: THREE.Vector3[];
 
-  constructor(scene: THREE.Scene, count: number) {
-    this.body = this.batch(bodyGeometry(), BODY, count, true);
-    this.glow = this.batch(glowGeometry(), GLOW, count, false);
-    this.rotors = this.batch(new THREE.BoxGeometry(0.34, 0.012, 0.045), BODY, count * ROTORS, true);
+  constructor(
+    scene: THREE.Scene,
+    private design: DroneDesign,
+    count: number,
+  ) {
+    this.body = this.batch(design.body, BODY, count, true);
+    this.glow = this.batch(design.glow, GLOW, count, false);
     this.glow.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
-    const haloTexture = glowTexture();
+    if (design.rotors.length > 0) {
+      this.rotors = this.batch(new THREE.BoxGeometry(design.rotorLength, 0.012, design.rotorLength * 0.13), BODY, count * design.rotors.length, true);
+    }
+    if (design.shield) {
+      const material = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      this.shield = this.batch(design.shield, material, count, false);
+      this.shield.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+    }
+    if (design.weakPoints) {
+      this.points = this.batch(new THREE.SphereGeometry(design.weakPointRadius!, 18, 12), new THREE.MeshBasicMaterial({ color: 0xffffff }), count * design.weakPoints.length, false);
+      this.points.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * design.weakPoints.length * 3), 3);
+    }
+    this.haloPoints = design.weakPoints ?? (design.core ? [design.core] : []);
+    const texture = glowTexture();
     for (let i = 0; i < count; i++) {
-      const material = new THREE.SpriteMaterial({ map: haloTexture, color: this.red, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
-      const halo = new THREE.Sprite(material);
-      this.halos.push(halo);
-      this.group.add(halo);
+      this.halos.push(
+        this.haloPoints.map(() => {
+          const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, color: this.red, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+          halo.visible = false;
+          this.group.add(halo);
+          return halo;
+        }),
+      );
       this.hide(i);
     }
+    this.group.visible = false;
     scene.add(this.group);
   }
 
-  /**
-   * Place drone `i`. glow: 0 normally, rising to 1 just before it fires.
-   * spin: the rotor angle in radians.
-   */
-  set(i: number, position: THREE.Vector3, rotation: THREE.Quaternion, glow: number, spin: number, scale = 1) {
-    this.matrix.compose(position, rotation, new THREE.Vector3(scale, scale, scale));
+  /** Only drawn during Drone Siege (and only while it has drones out). */
+  setShown(shown: boolean) {
+    this.shown = shown;
+    this.group.visible = shown && this.live.size > 0;
+  }
+
+  /** At load: draw the whole fleet once (all copies hidden) so its shaders compile then. */
+  showForWarmUp(shown: boolean) {
+    this.group.visible = shown || (this.shown && this.live.size > 0);
+  }
+
+  set(i: number, position: THREE.Vector3, rotation: THREE.Quaternion, look: DroneLook) {
+    if (!this.live.has(i)) {
+      this.live.add(i);
+      this.group.visible = this.shown;
+    }
+    this.matrix.compose(position, rotation, new THREE.Vector3(1, 1, 1));
     this.body.setMatrixAt(i, this.matrix);
     this.glow.setMatrixAt(i, this.matrix);
-    for (let k = 0; k < ROTORS; k++) {
-      const tip = ROTOR_TIPS[k];
-      this.part.makeRotationY(spin + k * 1.3).setPosition(tip);
-      this.rotors.setMatrixAt(i * ROTORS + k, this.part.premultiply(this.matrix));
+    const rotors = this.design.rotors;
+    if (this.rotors) {
+      rotors.forEach((tip, k) => {
+        this.part.makeRotationY(look.spin + k * 1.3).setPosition(tip);
+        this.rotors!.setMatrixAt(i * rotors.length + k, this.part.premultiply(this.matrix));
+      });
     }
-    const { glowIdle, glowCharged, haloSize } = CONFIG.siege;
-    const brightness = THREE.MathUtils.lerp(glowIdle, glowCharged, glow * glow);
+    const { glowIdle, glowCharged } = CONFIG.siege;
+    const brightness = THREE.MathUtils.lerp(glowIdle, glowCharged, look.glow * look.glow);
     this.glow.setColorAt(i, this.color.copy(this.red).multiplyScalar(brightness));
-    const halo = this.halos[i];
-    halo.visible = true;
-    halo.position.copy(CORE_OFFSET).multiplyScalar(scale).applyQuaternion(rotation).add(position);
-    halo.scale.setScalar(haloSize * scale * (1 + glow * 1.4));
-    (halo.material as THREE.SpriteMaterial).opacity = 0.55 + glow * 0.45;
+    if (this.shield) {
+      this.shield.setMatrixAt(i, this.matrix);
+      this.shield.setColorAt(i, this.color.copy(this.red).multiplyScalar(0.9 + (look.shieldFlash ?? 0) * 5));
+    }
+    const weakPoints = this.design.weakPoints;
+    if (this.points && weakPoints) {
+      weakPoints.forEach((p, k) => {
+        const intact = look.weakPoints?.[k] ?? true;
+        this.part.makeTranslation(p.x, p.y, p.z).premultiply(this.matrix);
+        this.points!.setMatrixAt(i * weakPoints.length + k, intact ? this.part : HIDDEN);
+        this.points!.setColorAt(i * weakPoints.length + k, this.color.copy(this.red).multiplyScalar(brightness * 1.4));
+      });
+    }
+    this.haloPoints.forEach((p, k) => {
+      const halo = this.halos[i][k];
+      halo.visible = look.weakPoints?.[k] ?? true;
+      halo.position.copy(p).applyQuaternion(rotation).add(position);
+      halo.scale.setScalar(this.design.haloSize * (1 + look.glow * 1.4));
+      (halo.material as THREE.SpriteMaterial).opacity = 0.55 + look.glow * 0.45;
+    });
     this.changed();
   }
 
   hide(i: number) {
-    this.halos[i].visible = false;
+    this.live.delete(i);
+    if (this.live.size === 0) this.group.visible = false;
+    for (const halo of this.halos[i] ?? []) halo.visible = false;
     this.body.setMatrixAt(i, HIDDEN);
     this.glow.setMatrixAt(i, HIDDEN);
-    for (let k = 0; k < ROTORS; k++) this.rotors.setMatrixAt(i * ROTORS + k, HIDDEN);
+    this.shield?.setMatrixAt(i, HIDDEN);
+    const rotorCount = this.design.rotors.length;
+    for (let k = 0; k < rotorCount; k++) this.rotors!.setMatrixAt(i * rotorCount + k, HIDDEN);
+    const pointCount = this.design.weakPoints?.length ?? 0;
+    for (let k = 0; k < pointCount; k++) this.points!.setMatrixAt(i * pointCount + k, HIDDEN);
     this.changed();
   }
 
   /** The glowing parts, for leaving out of ambient occlusion. */
   get glowObjects(): THREE.Object3D[] {
-    return [this.glow, ...this.halos];
+    return [this.glow, ...(this.shield ? [this.shield] : []), ...(this.points ? [this.points] : []), ...this.halos.flat()];
   }
 
   private changed() {
-    this.body.instanceMatrix.needsUpdate = true;
-    this.glow.instanceMatrix.needsUpdate = true;
-    this.rotors.instanceMatrix.needsUpdate = true;
-    if (this.glow.instanceColor) this.glow.instanceColor.needsUpdate = true;
+    for (const mesh of [this.body, this.glow, this.rotors, this.shield, this.points]) {
+      if (!mesh) continue;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   private batch(geometry: THREE.BufferGeometry, material: THREE.Material, count: number, shadows: boolean) {
@@ -105,46 +162,4 @@ export class DroneFleet {
     this.group.add(mesh);
     return mesh;
   }
-}
-
-// The dark parts: a flattened round hull, four arms out to the rotors, and a socket
-// around the core.
-function bodyGeometry() {
-  const parts: THREE.BufferGeometry[] = [];
-  const hull = new THREE.SphereGeometry(BODY_RADIUS + 0.02, 22, 14);
-  hull.scale(1, 0.6, 1);
-  parts.push(hull);
-  for (const tip of ROTOR_TIPS) {
-    const arm = new THREE.BoxGeometry(0.5, 0.04, 0.06);
-    arm.rotateY(-Math.atan2(tip.z, tip.x));
-    arm.translate(tip.x * 0.55, 0.03, tip.z * 0.55);
-    const hub = new THREE.CylinderGeometry(0.035, 0.045, 0.07, 10);
-    hub.translate(tip.x, 0.045, tip.z);
-    parts.push(arm, hub);
-  }
-  const socket = new THREE.TorusGeometry(CORE_VISIBLE_RADIUS + 0.025, 0.035, 8, 24);
-  socket.translate(CORE_OFFSET.x, CORE_OFFSET.y, CORE_OFFSET.z + 0.04);
-  parts.push(socket);
-  return mergeGeometries(parts.map(withoutUv))!;
-}
-
-// The red glowing parts: the core (full brightness) and a thin band around the hull
-// (dimmer, through its vertex colors), so a drone reads as hostile from any side.
-function glowGeometry() {
-  const core = new THREE.SphereGeometry(CORE_VISIBLE_RADIUS, 18, 12);
-  core.translate(CORE_OFFSET.x, CORE_OFFSET.y, CORE_OFFSET.z);
-  const band = new THREE.TorusGeometry(BODY_RADIUS + 0.035, 0.018, 6, 40);
-  band.rotateX(Math.PI / 2);
-  const tint = (geometry: THREE.BufferGeometry, shade: number) => {
-    const colors = new Float32Array(geometry.attributes.position.count * 3).fill(shade);
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    return withoutUv(geometry);
-  };
-  return mergeGeometries([tint(core, 1), tint(band, 0.35)])!;
-}
-
-
-function withoutUv(geometry: THREE.BufferGeometry) {
-  geometry.deleteAttribute('uv');
-  return geometry.index ? geometry.toNonIndexed() : geometry;
 }

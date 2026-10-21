@@ -75,7 +75,8 @@ export function createComposer(
   glow.setSize = (width: number, height: number) => glowSetSize(Math.ceil(width / 2), Math.ceil(height / 2));
   glow.setSize(size.x, size.y);
   composer.addPass(glow);
-  composer.addPass(new FinishPass(glow, ao));
+  const finish = new FinishPass(glow, ao);
+  composer.addPass(finish);
 
   window.addEventListener('resize', () => composer.setSize(window.innerWidth, window.innerHeight));
 
@@ -108,6 +109,8 @@ export function createComposer(
       gun.enabled = showGun;
       composer.render(dt);
     },
+    /** A color grade over the whole picture (white for none). */
+    setTint: (color: THREE.Color) => finish.setTint(color),
     /** Leave these out of ambient occlusion (glass, particles, sky). */
     excludeFromAO: (...objects: THREE.Object3D[]) => aoHidden.push(...objects),
   };

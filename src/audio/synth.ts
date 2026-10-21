@@ -531,6 +531,114 @@ export function spawnWarning(c: BaseAudioContext) {
   }, 0.7);
 }
 
+// ---- The drone roster ----
+
+/** A shot deflected off a drone's energy shield: a sizzling electric twang. */
+export function shieldBlock(c: BaseAudioContext, seed: number) {
+  return make(c, 0.4, 3000 + seed, (out, rate, random) => {
+    add(out, rate, filter(zap(rate, 0.3, 1300 + random() * 300, 2600, 0.05), rate, 'bandpass', 2000, 1.2), 0, 0.6, 0.08);
+    add(out, rate, filter(noise(seconds(0.2, rate), random), rate, 'highpass', 4000), 0, 0.4, 0.05);
+    ping(out, rate, 0, [1800, 2700], 0.05, 0.3);
+  }, 0.65);
+}
+
+/** A sniper charging: a thin whine climbing for a second and a half. */
+export function sniperAim(c: BaseAudioContext) {
+  return make(c, 1.55, 3100, (out, rate) => {
+    let phase = 0;
+    for (let i = 0; i < out.length; i++) {
+      const t = i / rate;
+      const p = t / 1.55;
+      phase += (600 + 2400 * p * p) / rate;
+      const pulse = 0.75 + 0.25 * Math.sin(2 * Math.PI * (6 + 20 * p) * t); // a quickening throb
+      out[i] = Math.sin(2 * Math.PI * phase) * (0.2 + 0.8 * p) * pulse * Math.min(1, t / 0.05);
+    }
+  }, 0.45);
+}
+
+/** A sniper's shot: a hard, ringing crack. */
+export function sniperShot(c: BaseAudioContext) {
+  return make(c, 0.9, 3200, (out, rate, random) => {
+    add(out, rate, filter(noise(seconds(0.06, rate), random), rate, 'highpass', 1500), 0, 1.2, 0.012);
+    thump(out, rate, 0, 160, 45, 0.12, 1.1);
+    ping(out, rate, 0, [2400, 3900, 5200], 0.12, 0.35);
+    add(out, rate, filter(zap(rate, 0.5, 3600, 300, 0.12), rate, 'lowpass', 4000), 0.005, 0.4, 0.15);
+  });
+}
+
+/** A carrier launching a scout: a heavy latch and a rush out of the bay. */
+export function launch(c: BaseAudioContext) {
+  return make(c, 0.9, 3300, (out, rate, random) => {
+    thump(out, rate, 0, 110, 50, 0.12, 1);
+    ping(out, rate, 0, [700, 1100], 0.04, 0.3);
+    add(out, rate, filter(noise(seconds(0.6, rate), random), rate, 'bandpass', 700, 0.8), 0.05, 0.6, 0.2, 0.08);
+  }, 0.75);
+}
+
+/** The carrier going down: several deep blasts rolling into each other. */
+export function carrierDown(c: BaseAudioContext) {
+  return make(c, 3, 3400, (out, rate, random) => {
+    for (const [at, gain] of [[0, 1.4], [0.35, 1], [0.7, 1.2], [1.2, 0.8]]) {
+      thump(out, rate, at, 80, 22, 0.4, gain);
+      add(out, rate, filter(filter(noise(seconds(1, rate), random), rate, 'lowpass', 700), rate, 'lowpass', 500), at, gain, 0.3);
+    }
+    for (let i = 0; i < 30; i++) ping(out, rate, random() * 2, [500 + random() * 1500], 0.05, 0.12);
+  }, 0.95);
+}
+
+/** A kamikaze closing in: a short, high beep. */
+export function beep(c: BaseAudioContext) {
+  return make(c, 0.07, 3500, (out, rate) => {
+    for (let i = 0; i < out.length; i++) {
+      const t = i / rate;
+      out[i] = Math.sign(Math.sin(2 * Math.PI * 1900 * t)) * Math.min(1, t / 0.003) * Math.min(1, (0.07 - t) / 0.01);
+    }
+  }, 0.35);
+}
+
+/** A swarm round starting: a fast, rising siren, unlike the usual klaxon. */
+export function swarmAlarm(c: BaseAudioContext) {
+  return make(c, 2.6, 3600, (out, rate) => {
+    let phase = 0;
+    for (let i = 0; i < out.length; i++) {
+      const t = i / rate;
+      const sweep = (t * 3.2) % 1; // three and a bit whoops a second
+      phase += (500 + 900 * sweep) / rate;
+      out[i] = ((phase % 1) * 2 - 1) * 0.5 * Math.min(1, t / 0.05) * Math.min(1, (2.6 - t) / 0.3);
+    }
+  }, 0.6);
+}
+
+/** A carrier round starting: a deep, slow horn. */
+export function bossHorn(c: BaseAudioContext) {
+  return make(c, 3.2, 3700, (out, rate) => {
+    for (const freq of [55, 82.5, 110]) {
+      let phase = 0;
+      for (let i = 0; i < out.length; i++) {
+        const t = i / rate;
+        phase += (freq * (1 - 0.04 * Math.min(1, t / 3))) / rate;
+        const level = Math.min(1, t / 0.4) * Math.min(1, (3.2 - t) / 0.6);
+        out[i] += ((phase % 1) * 2 - 1) * 0.3 * level;
+      }
+    }
+    for (let i = 0; i < out.length; i++) out[i] = Math.tanh(out[i] * 1.5); // a gritty edge
+  }, 0.7);
+}
+
+/** Max Ammo: a bright rising arpeggio. */
+export function maxAmmo(c: BaseAudioContext) {
+  return make(c, 1.2, 3800, (out, rate) => {
+    [523, 659, 784, 1047].forEach((freq, k) => {
+      const begin = seconds(k * 0.09, rate);
+      for (let i = 0; i < seconds(0.6, rate); i++) {
+        const t = i / rate;
+        const tri = (2 / Math.PI) * Math.asin(Math.sin(2 * Math.PI * freq * t));
+        out[begin + i] += tri * 0.35 * Math.min(1, t / 0.004) * Math.exp(-t / 0.2);
+      }
+    });
+  }, 0.6);
+}
+
 /** A few seconds of plain noise, for looping sounds built from live filters. */
 export function noiseLoop(c: BaseAudioContext) {
   return make(c, 3, 999, (out, _rate, random) => out.set(noise(out.length, random)), 0.9);

@@ -173,6 +173,42 @@ export class GameAudio {
     this.play(this.sounds.spawnWarning, 'world', { gain: 0.8, position });
   }
 
+  shieldBlock(position: THREE.Vector3) {
+    if (this.tooSoon('shield', 0.06)) return;
+    this.play(this.pick(this.sounds.shieldBlocks), 'world', { gain: 0.7, position, rate: 0.9 + Math.random() * 0.2 });
+  }
+
+  /** A sniper starts charging: your cue to get behind something. */
+  sniperAim(position: THREE.Vector3) {
+    this.play(this.sounds.sniperAim, 'world', { gain: 0.6, position });
+  }
+
+  sniperShot(position: THREE.Vector3) {
+    this.play(this.sounds.sniperShot, 'world', { gain: 0.9, position });
+  }
+
+  carrierLaunch(position: THREE.Vector3) {
+    this.play(this.sounds.launch, 'world', { gain: 0.9, position });
+  }
+
+  carrierDown(position: THREE.Vector3) {
+    this.play(this.sounds.carrierDown, 'world', { gain: 1, position });
+  }
+
+  kamikazeBeep(position: THREE.Vector3) {
+    if (this.tooSoon('beep', 0.05)) return;
+    this.play(this.sounds.beep, 'world', { gain: 0.5, position });
+  }
+
+  /** The start of a special round: a swarm's siren or a carrier's horn (in place of the usual klaxon). */
+  specialRound(kind: 'swarm' | 'carrier') {
+    this.play(kind === 'swarm' ? this.sounds.swarmAlarm : this.sounds.bossHorn, 'suit', { gain: 0.65 });
+  }
+
+  maxAmmo() {
+    this.play(this.sounds.maxAmmo, 'suit', { gain: 0.6 });
+  }
+
   droneExplosion(position: THREE.Vector3) {
     this.play(this.pick(this.sounds.droneExplosions), 'world', { gain: 1, position, rate: 0.92 + Math.random() * 0.16 });
   }
@@ -376,6 +412,15 @@ function buildSounds(c: BaseAudioContext) {
     droneExplosions: range(2).map((i) => synth.droneExplosion(c, i)),
     suitAlarm: synth.suitAlarm(c),
     roundStart: synth.roundStart(c),
+    shieldBlocks: range(2).map((i) => synth.shieldBlock(c, i)),
+    sniperAim: synth.sniperAim(c),
+    sniperShot: synth.sniperShot(c),
+    launch: synth.launch(c),
+    carrierDown: synth.carrierDown(c),
+    beep: synth.beep(c),
+    swarmAlarm: synth.swarmAlarm(c),
+    bossHorn: synth.bossHorn(c),
+    maxAmmo: synth.maxAmmo(c),
     pistolShots: range(3).map((i) => synth.pistolShot(c, i)),
     smgShots: range(3).map((i) => synth.smgShot(c, i)),
     scatterShots: range(2).map((i) => synth.scatterShot(c, i)),
