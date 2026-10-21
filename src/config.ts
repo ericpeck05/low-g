@@ -364,14 +364,16 @@ export const CONFIG = {
       maxLead: 0.85, // ...up to this
     },
 
-    // Which drone types can appear in ordinary rounds, from which round, and how often
-    // (relative weights). Kamikazes only come in swarm rounds, carriers in carrier rounds.
+    // The tougher drones in ordinary rounds (scouts make up the rest). Each type unlocks
+    // in round fromRound with `first` of them, then gains perRound more each round after
+    // (rounded down), spaced out through the round. So gunners: 1 in rounds 4 and 5,
+    // 2 in rounds 6 and 7, 3 in rounds 8 and 9, and so on. Kamikazes only come in swarm
+    // rounds, carriers in carrier rounds.
     roster: {
-      scout: { fromRound: 1, weight: 1 },
-      gunner: { fromRound: 4, weight: 0.45 },
-      shielded: { fromRound: 8, weight: 0.35 },
-      sniper: { fromRound: 10, weight: 0.22 },
-      repair: { fromRound: 12, weight: 0.15 },
+      gunner: { fromRound: 4, first: 1, perRound: 0.5 },
+      shielded: { fromRound: 8, first: 1, perRound: 0.4 },
+      sniper: { fromRound: 10, first: 1, perRound: 0.34 },
+      repair: { fromRound: 12, first: 1, perRound: 0.25 },
     },
 
     // Special rounds, like Zombies' dog rounds and boss waves.

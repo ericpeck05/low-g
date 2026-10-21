@@ -5,8 +5,9 @@ import { CONFIG } from '../config';
 // its drones is destroyed, then there's a short quiet before the next, bigger one. Every
 // few rounds is a swarm round (only kamikazes), and every tenth brings a carrier, the boss.
 
-export type RosterType = keyof typeof CONFIG.siege.roster;
-export type DroneType = RosterType | 'kamikaze' | 'carrier';
+/** The tougher types that join ordinary rounds a few at a time (scouts make up the rest). */
+export type ToughType = keyof typeof CONFIG.siege.roster;
+export type DroneType = 'scout' | ToughType | 'kamikaze' | 'carrier';
 export type RoundKind = 'normal' | 'swarm' | 'carrier';
 
 /** How a drone of a given round flies and fights, compared with round 1. */
@@ -51,8 +52,8 @@ export function healthScale(n: number) {
   return linear * r.healthGrowth ** Math.max(0, n - 10);
 }
 
-/** Stats for a drone of this type in round n (a random type from the roster if none is given). */
-export function droneStats(n: number, type: DroneType = pickType(n)): DroneStats {
+/** Stats for a drone of this type in round n. */
+export function droneStats(n: number, type: DroneType): DroneStats {
   const r = rounds();
   const base = CONFIG.siege[type];
   // A carrier's own health doesn't matter: its weak points each have this much.
@@ -66,18 +67,40 @@ export function droneStats(n: number, type: DroneType = pickType(n)): DroneStats
   };
 }
 
-/** A random drone type among those unlocked by round n, by their weights. */
-export function pickType(n: number): RosterType {
-  const unlocked = (Object.entries(CONFIG.siege.roster) as [RosterType, { fromRound: number; weight: number }][]).filter(
-    ([, entry]) => n >= entry.fromRound,
-  );
-  const total = unlocked.reduce((sum, [, entry]) => sum + entry.weight, 0);
-  let roll = Math.random() * total;
-  for (const [type, entry] of unlocked) {
-    roll -= entry.weight;
-    if (roll <= 0) return type;
+/** How many of a tougher type an ordinary round n sends: none before it unlocks, then a few more each round. */
+export function toughCount(n: number, type: ToughType) {
+  const entry = CONFIG.siege.roster[type];
+  return n < entry.fromRound ? 0 : Math.floor(entry.first + entry.perRound * (n - entry.fromRound));
+}
+
+/**
+ * The drones round n sends, in the order they come. Mostly scouts, with the round's few
+ * tougher drones spaced evenly through it (in a random order), so they never pile up
+ * at once. A swarm round is all kamikazes. A carrier round opens with the carrier, and
+ * its smaller escort brings its share of the tougher drones (at least one of each).
+ */
+export function lineup(n: number, kind: RoundKind = 'normal'): DroneType[] {
+  const total = dronesInRound(n, kind);
+  if (kind === 'swarm') return new Array<DroneType>(total).fill('kamikaze');
+  const size = kind === 'carrier' ? total - 1 : total;
+  const share = kind === 'carrier' ? CONFIG.siege.special.carrierEscort : 1;
+  const tough: DroneType[] = [];
+  for (const type of Object.keys(CONFIG.siege.roster) as ToughType[]) {
+    const count = Math.ceil(toughCount(n, type) * share);
+    for (let k = 0; k < count; k++) tough.push(type);
   }
-  return unlocked[0][0];
+  shuffle(tough);
+  tough.length = Math.min(tough.length, size);
+  const order = new Array<DroneType>(size).fill('scout');
+  tough.forEach((type, k) => (order[Math.floor(((k + 0.5) / tough.length) * size)] = type));
+  return kind === 'carrier' ? ['carrier', ...order] : order;
+}
+
+function shuffle<T>(list: T[]) {
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
 }
 
 export type RoundEvent = { kind: 'roundStart' | 'roundEnd'; round: number; special: RoundKind };
@@ -97,7 +120,7 @@ export class RoundDirector {
   /** Set by update(): send a drone of this type in this frame. */
   wantsSpawn: DroneType | null = null;
   private nextSwarm = 0; // the round the next swarm comes in
-  private sent = 0; // drones of this round sent in (or on their way)
+  private queue: DroneType[] = []; // this round's drones not sent in yet, in order
   private spawnTimer = 0;
   private events: RoundEvent[] = []; // gathered between updates (a kill can end a round mid-shot)
 
@@ -108,7 +131,7 @@ export class RoundDirector {
     this.nextSwarm = this.swarmAfter(0);
     this.destroyed = 0;
     this.total = 0;
-    this.sent = 0;
+    this.queue = [];
     this.state = 'intermission';
     this.countdown = rounds().firstDelay;
   }
@@ -129,10 +152,8 @@ export class RoundDirector {
       if (this.countdown <= 0) this.beginRound();
     } else {
       this.spawnTimer -= dt;
-      if (this.sent < this.total && alive < maxAlive(this.round, this.kind) && this.spawnTimer <= 0) {
-        // A carrier round opens with the carrier; a swarm round is all kamikazes.
-        this.wantsSpawn = this.kind === 'swarm' ? 'kamikaze' : this.kind === 'carrier' && this.sent === 0 ? 'carrier' : pickType(this.round);
-        this.sent++;
+      if (this.queue.length > 0 && alive < maxAlive(this.round, this.kind) && this.spawnTimer <= 0) {
+        this.wantsSpawn = this.queue.shift()!;
         this.spawnTimer = spawnInterval(this.round, this.kind) * (0.7 + Math.random() * 0.6);
       }
     }
@@ -154,17 +175,16 @@ export class RoundDirector {
   /** A carrier launched a scout: it joins this round, which now ends only when it's down too. */
   onLaunched() {
     this.total++;
-    this.sent++;
   }
 
-  /** A drone left without being destroyed (sent back to a spawn point): it'll come in again. */
-  onRecalled() {
-    this.sent = Math.max(this.destroyed, this.sent - 1);
+  /** A drone left without being destroyed (sent back to a spawn point): it'll come in again next. */
+  onRecalled(type: DroneType) {
+    this.queue.unshift(type);
   }
 
   /** The spawn couldn't happen after all (no free spawn point): try again shortly. */
-  onSpawnFailed() {
-    this.sent--;
+  onSpawnFailed(type: DroneType) {
+    this.queue.unshift(type);
     this.spawnTimer = 0.5;
   }
 
@@ -174,9 +194,9 @@ export class RoundDirector {
     this.kind = this.round % every === 0 ? 'carrier' : this.round === this.nextSwarm ? 'swarm' : 'normal';
     if (this.kind === 'swarm') this.nextSwarm = this.swarmAfter(this.round);
     this.state = 'fighting';
-    this.total = dronesInRound(this.round, this.kind);
+    this.queue = lineup(this.round, this.kind);
+    this.total = this.queue.length;
     this.destroyed = 0;
-    this.sent = 0;
     this.spawnTimer = 0.6;
     this.events.push({ kind: 'roundStart', round: this.round, special: this.kind });
   }

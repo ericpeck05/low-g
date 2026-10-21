@@ -301,7 +301,7 @@ export class SiegeMode {
   sendDrone(player: SiegePlayer, type: DroneType, inside = isInsideDome(player.feet)) {
     const point = this.spawnPoints.pick(player.feet, inside);
     if (!point) {
-      this.rounds.onSpawnFailed();
+      this.rounds.onSpawnFailed(type);
       return;
     }
     this.spawnPoints.warn(point);
@@ -523,7 +523,7 @@ export class SiegeMode {
   private recall(drone: HostileDrone) {
     this.effects.arrive(drone.position);
     this.remove(drone);
-    this.rounds.onRecalled();
+    this.rounds.onRecalled(drone.type);
   }
 
   private collidersOf(drone: HostileDrone) {
