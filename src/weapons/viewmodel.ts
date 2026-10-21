@@ -119,6 +119,15 @@ export class Viewmodel {
     this.sinceShot = 10;
   }
 
+  /**
+   * How far into the scope view you are (0 to 1) and its reticle, for the HUD overlay.
+   * Only scoped guns have one; it comes in over the last part of raising the sights.
+   */
+  scopeView(aimBlend: number) {
+    if (!this.model.scope) return null;
+    return { blend: smooth(THREE.MathUtils.clamp((aimBlend - 0.65) / 0.3, 0, 1)), style: this.model.scope };
+  }
+
   /** A gun's model, for building a copy to hang on a weapon station. */
   modelFor(id: WeaponId) {
     return this.models.get(id)!;
@@ -232,6 +241,9 @@ export class Viewmodel {
 
     this.rig.position.copy(position);
     this.rig.rotation.copy(rotation);
+    // Looking through a scope, the overlay covers the gun completely: stop drawing it.
+    const scope = this.scopeView(aim);
+    this.rig.visible = !scope || scope.blend < 0.99;
 
     this.animateParts(dt, rifle);
     this.light(dt, state);

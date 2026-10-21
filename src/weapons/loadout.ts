@@ -63,7 +63,7 @@ export class Loadout {
   /** A new gun: into an empty slot if there is one, otherwise it replaces the one in hand. */
   give(spec: WeaponSpec) {
     const empty = this.slots.indexOf(null);
-    this.current.holster();
+    this.slots[this.index]?.holster();
     this.incoming = new Gun(spec);
     this.next = empty >= 0 ? empty : this.index;
     this.switchTimer = LOWER_TIME + RAISE_TIME;

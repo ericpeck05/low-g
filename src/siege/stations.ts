@@ -19,6 +19,8 @@ export interface Station {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+// Amber, lit just enough to read in shadow, but not so bright that it blooms into a haze in sunlight.
+const FRAME = new THREE.MeshStandardMaterial({ color: 0xffa31a, emissive: 0xff8a00, emissiveIntensity: 0.35, roughness: 0.5 });
 const BOARD_HEIGHT = 1.45; // meters up the wall
 
 export class WeaponStations {
@@ -75,12 +77,12 @@ export class WeaponStations {
     board.matrix.makeBasis(right, UP, n).setPosition(position);
     board.matrixAutoUpdate = false;
 
-    // The board: a dark plate with an amber frame.
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.75, 0.06), MATERIALS.trim);
+    // The board: a pale plate (so the dark gun stands out against it) with an amber frame.
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.75, 0.06), MATERIALS.lightPanel);
     plate.receiveShadow = true;
     board.add(plate);
     for (const [w, h, x, y] of [[1.5, 0.03, 0, 0.375], [1.5, 0.03, 0, -0.375], [0.03, 0.75, -0.75, 0], [0.03, 0.75, 0.75, 0]]) {
-      const edge = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.07), MATERIALS.amberLight);
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.07), FRAME);
       edge.position.set(x, y, 0.005);
       board.add(edge);
     }

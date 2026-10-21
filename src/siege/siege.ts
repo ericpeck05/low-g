@@ -284,6 +284,11 @@ export class SiegeMode {
     this.rounds.onRecalled();
   }
 
+  /** Show everything for one frame at load, so its shadow shaders compile then and not mid-game. */
+  showForWarmUp(shown: boolean) {
+    this.setShown(shown);
+  }
+
   // The drone, bolt and debris batches are drawn even when every copy is hidden, so
   // outside Drone Siege they're switched off entirely.
   private setShown(shown: boolean) {

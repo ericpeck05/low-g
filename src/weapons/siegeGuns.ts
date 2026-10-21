@@ -31,6 +31,7 @@ function base(parts: Partial<GunModel> & Pick<GunModel, 'root' | 'magazine' | 'm
     hipOffset: new THREE.Vector3(),
     glow: null,
     setAmmoDisplay: null,
+    scope: null,
     ...parts,
     moving: [parts.magazine, flash, ...(parts.action ? [parts.action.part] : []), ...(parts.moving ?? [])],
   };
@@ -68,7 +69,7 @@ function buildSidearm(): GunModel {
     ejectionPort: new THREE.Vector3(0.016, 0.026, -0.005),
     support: null,
     action: { part: slide, travel: 0.028, delay: 0, carriesHand: false },
-    hipOffset: new THREE.Vector3(-0.035, 0.03, 0.08),
+    hipOffset: new THREE.Vector3(-0.025, 0.055, -0.03),
   });
 }
 
@@ -126,12 +127,14 @@ function buildScatter(): GunModel {
   grip.rotation.y = Math.PI / 8;
   for (let i = 0; i < 6; i++) tube(pump, 0.0372, 0.255 + i * 0.024, 0.262 + i * 0.024, BORE, M.rubber, 8).rotation.y = Math.PI / 8;
   root.add(pump);
-  // Sights: a ghost ring at the back of the receiver and an amber bead at the muzzle.
-  const ring = mesh(new THREE.TorusGeometry(0.0075, 0.0018, 8, 24), M.receiver, root);
-  ring.position.set(0, 0.093, 0.08);
-  box(root, [0.012, 0.012, 0.01], [0, 0.084, 0.08], M.receiver);
-  box(root, [0.004, 0.04, 0.006], [0, 0.072, -0.6], M.receiver);
-  mesh(new THREE.SphereGeometry(0.0035, 10, 8), M.amber, root).position.set(0, 0.093, -0.6);
+  // Sights: a ghost ring on a post at the back of the receiver and an amber bead on a
+  // post at the muzzle, both standing well clear of the receiver so it doesn't block the view.
+  const sightY = 0.118;
+  const ring = mesh(new THREE.TorusGeometry(0.0085, 0.0018, 8, 24), M.receiver, root);
+  ring.position.set(0, sightY, 0.08);
+  box(root, [0.006, sightY - 0.083 - 0.008, 0.01], [0, (sightY + 0.083 - 0.008) / 2, 0.08], M.receiver);
+  box(root, [0.004, sightY - 0.049, 0.006], [0, (sightY + 0.049) / 2 - 0.003, -0.6], M.receiver);
+  mesh(new THREE.SphereGeometry(0.0035, 10, 8), M.amber, root).position.set(0, sightY, -0.6);
   // Solid stock and butt pad.
   mesh(profile([[-0.12, 0.07], [-0.15, 0.075], [-0.36, 0.05], [-0.37, -0.075], [-0.33, -0.08], [-0.2, -0.03], [-0.12, -0.02]], 0.05, 0.004), M.polymer, root);
   mesh(profile([[-0.37, 0.052], [-0.385, 0.052], [-0.385, -0.08], [-0.37, -0.076]], 0.054, 0.003), M.rubber, root);
@@ -146,7 +149,7 @@ function buildScatter(): GunModel {
     root,
     magazine,
     magazineWell: new THREE.Vector3(0, -0.03, -0.065),
-    sight: new THREE.Vector3(0, 0.093, 0.08),
+    sight: new THREE.Vector3(0, sightY, 0.08),
     muzzle: new THREE.Vector3(0, BORE, -0.635),
     flashSize: 1.5,
     ejectionPort: new THREE.Vector3(0.032, 0.04, 0.02),
@@ -203,6 +206,7 @@ function buildCarbine(): GunModel {
     magazine,
     magazineWell: new THREE.Vector3(0, -0.074, -0.072),
     sight: new THREE.Vector3(0, scopeY, 0.06),
+    scope: 'cross',
     muzzle: new THREE.Vector3(0, BORE, -0.49),
     flashSize: 0.9,
     ejectionPort: new THREE.Vector3(0.03, 0.035, 0),
@@ -257,6 +261,7 @@ function buildRail(): GunModel {
     magazine,
     magazineWell: new THREE.Vector3(0, -0.035, -0.07),
     sight: new THREE.Vector3(0, scopeY, 0.06),
+    scope: 'ring',
     muzzle: new THREE.Vector3(0, BORE, -0.77),
     flash: buildMuzzleFlash(0xfff2dc),
     flashSize: 1.6,

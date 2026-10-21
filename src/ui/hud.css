@@ -113,6 +113,17 @@
 .prompt .price { color: var(--amber); }
 .prompt .price.short { color: var(--orange); }
 
+/* Looking through a magnified scope: black all around a round view, fine crosshairs, an amber
+   dot (or ring, on the rail rifle). The world camera's zoom does the magnifying. */
+.scope { position: absolute; inset: 0; opacity: 0;
+  background: radial-gradient(circle at center, transparent 0, transparent 37vh, rgba(0, 0, 0, 0.55) 38.5vh, #000 40vh); }
+.scope::before, .scope::after { content: ''; position: absolute; left: 50%; top: 50%; background: rgba(8, 8, 8, 0.85); }
+.scope::before { width: 78vh; height: 1px; transform: translate(-50%, -50%); }
+.scope::after { width: 1px; height: 78vh; transform: translate(-50%, -50%); }
+.scope .dot { position: absolute; left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; z-index: 1;
+  border-radius: 50%; background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+.scope.ring .dot { width: 22px; height: 22px; margin: -12px 0 0 -12px; background: none; border: 2px solid var(--amber); }
+
 /* Edges darken and warm up as the air runs out. */
 .hypoxia { position: absolute; inset: 0; opacity: 0;
   background: radial-gradient(ellipse at center, transparent 35%, rgba(120, 30, 0, 0.88) 100%); }

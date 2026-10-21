@@ -371,6 +371,7 @@ async function boot() {
       dt,
       player,
       gun,
+      scope: viewmodel.scopeView(gun.aimBlend),
       scoring,
       oxygen,
       inside,
@@ -579,9 +580,14 @@ async function boot() {
   await renderer.compileAsync(viewmodel.scene, viewmodel.camera);
   renderer.setRenderTarget(null);
   // Drawing one frame, gun included, compiles the rest (shadows and post-processing).
+  // Drone Siege's things are shown for it too, since its shadows use shaders of their own.
   await loading.step(0.94, 'PRESSURIZING THE DOME');
+  siege.showForWarmUp(true);
+  stations.setActive(true);
   tick(0);
   composer.render(0, true);
+  siege.showForWarmUp(false);
+  stations.setActive(false);
 
   // The game loop runs once per screen refresh.
   // Cap the frame time so a stall can't make us skip through walls.

@@ -15,6 +15,7 @@ export interface HudState {
   dt: number;
   player: Player;
   gun: Gun; // the gun in hand
+  scope: { blend: number; style: 'cross' | 'ring' } | null; // looking through a magnified scope
   scoring: Scoring;
   oxygen: Oxygen;
   inside: boolean; // breathing dome air
@@ -66,6 +67,7 @@ export class Hud {
     this.root.innerHTML = `
       <div class="visor"></div>
       <div class="hypoxia"></div>
+      <div class="scope"><div class="dot"></div></div>
       <div class="hud-sway">
         <div class="hud-top">
           <div class="compass"><div class="strip"></div><div class="needle"></div></div>
@@ -127,7 +129,7 @@ export class Hud {
       'scoreLabel:.score-label', 'points:.points', 'combo:.combo', 'meter:.meter div', 'accuracy:.accuracy',
       'ammo:.ammo', 'weapon:.ammo .weapon', 'rounds:.rounds', 'pips:.pips', 'state:.state', 'reload:.reload div', 'slots:.slots', 'prompt:.prompt',
       'crosshair:.crosshair', 'l:.crosshair .l', 'r:.crosshair .r', 't:.crosshair .t', 'b:.crosshair .b',
-      'hitmarker:.hitmarker', 'popups:.popups', 'warning:.warning', 'toast:.toast', 'hypoxia:.hypoxia', 'stats:.stats',
+      'hitmarker:.hitmarker', 'popups:.popups', 'warning:.warning', 'toast:.toast', 'hypoxia:.hypoxia', 'scope:.scope', 'stats:.stats',
     ];
     for (const entry of names) {
       const [name, selector] = entry.split(':');
@@ -233,6 +235,9 @@ export class Hud {
     // Aiming down sights uses the gun's own reticle instead; sprinting hides it too.
     const hidden = Math.max(s.gun.aimBlend * 1.5, s.player.sprinting ? 1 : 0);
     this.el.crosshair.style.opacity = String(Math.max(0, 1 - hidden));
+    // Through a scope: the overlay fades in as the sights come all the way up.
+    this.el.scope.style.opacity = s.scope ? s.scope.blend.toFixed(3) : '0';
+    this.el.scope.classList.toggle('ring', s.scope?.style === 'ring');
     this.hitmarkerTime = Math.max(0, this.hitmarkerTime - s.dt);
     this.el.hitmarker.style.opacity = String(Math.min(1, this.hitmarkerTime / 0.08));
   }

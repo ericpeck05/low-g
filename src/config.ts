@@ -300,7 +300,7 @@ export const CONFIG = {
         name: 'P-9 SIDEARM', fireMode: 'semi', fireRate: 6, burstCount: 1, burstRate: 0, magazine: 12, reserve: 84,
         reloadTime: 1.3, damage: 34, pellets: 1, pierce: 1, range: 250, falloff: [60, 250], minDamage: 0.6,
         hipSpread: 0.9, adsSpread: 0.15, spreadPerShot: 0.55, spreadRecovery: 6,
-        adsFov: 60, eyeRelief: 0.3, recoil: { pitch: 1.1, yaw: 0.35, shake: 0.006, kickBack: 0.045, kickUp: 6 },
+        adsFov: 60, eyeRelief: 0.55, recoil: { pitch: 1.1, yaw: 0.35, shake: 0.006, kickBack: 0.045, kickUp: 6 },
         price: 0, ammoPrice: 0,
       },
       smg: {

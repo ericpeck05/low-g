@@ -28,6 +28,12 @@ export interface GunModel {
   setAmmoDisplay: ((ammo: number, capacity: number, reloading: boolean) => void) | null;
   /** Parts that move on their own, kept out of the mesh merge. */
   moving: THREE.Object3D[];
+  /**
+   * A magnified scope: fully aimed, the view switches to looking through it (the HUD's
+   * scope overlay with this reticle). A real tube in front of the eye would show only a
+   * pinhole of the far lens, so scopes are drawn this way in most shooters.
+   */
+  scope: 'cross' | 'ring' | null;
 }
 
 /** Where the left glove was shaped to hold a handguard (see hands.ts). */

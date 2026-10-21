@@ -193,6 +193,7 @@ export function buildRifle(): GunModel {
     glow: null,
     setAmmoDisplay: display.set,
     moving: [bolt, magazine, chargingHandle, flash],
+    scope: null,
   };
 }
 
