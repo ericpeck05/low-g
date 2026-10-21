@@ -20,6 +20,7 @@ import { placeCityTargets } from './targets/cityTargets';
 import { Hud } from './ui/hud';
 import { loading } from './ui/loading';
 import { Menu } from './ui/menu';
+import { RoundHud } from './ui/roundHud';
 import { SuitHud } from './ui/suitHud';
 import { type SiegeEvent, type SiegePlayer, SiegeMode } from './siege/siege';
 import type { HitResult } from './targets/target';
@@ -88,6 +89,7 @@ async function boot() {
   let inside = true; // breathing dome air (inside the dome or an airlock chamber)
   const hud = new Hud();
   const suitHud = new SuitHud(hud);
+  const roundHud = new RoundHud(hud); // added after the suit readout, so it sits above it
   await loading.step(0.71, 'RECORDING SOUNDS');
   const audio = new GameAudio();
   let lastReloadProgress = 0; // for timing reload sounds to the animation
@@ -101,6 +103,7 @@ async function boot() {
       session.state = 'menu';
       siege.stop();
       suitHud.setActive(false);
+      roundHud.setActive(false);
       menu.showMain();
     },
   });
@@ -161,7 +164,8 @@ async function boot() {
     // Drone Siege: the practice targets stand down and hostile drones come in.
     targets.setActive(mode !== 'siege');
     suitHud.setActive(mode === 'siege');
-    if (mode === 'siege') siege.start(siegePlayer());
+    roundHud.setActive(mode === 'siege');
+    if (mode === 'siege') siege.start();
     else siege.stop();
     menu.hide();
     void lockMouse();
@@ -186,6 +190,14 @@ async function boot() {
       else if (event.kind === 'fire') audio.droneFire(event.position);
       else if (event.kind === 'boltImpact') audio.boltImpact(event.position);
       else if (event.kind === 'whiz') audio.boltWhiz(event.position);
+      else if (event.kind === 'spawnWarning') audio.spawnWarning(event.position);
+      else if (event.kind === 'roundStart') {
+        audio.roundStart();
+        roundHud.roundStarted(event.round);
+      } else if (event.kind === 'roundEnd') {
+        audio.roundEnd();
+        roundHud.roundEnded(event.round);
+      }
       else if (event.kind === 'playerHit') {
         audio.suitHit();
         suitHud.hit(event.from);
@@ -318,7 +330,10 @@ async function boot() {
       exertion: player.jetpack.thrusting || player.sprinting ? 1 : 0,
       suitLow: playing && session.mode === 'siege' && siege.suit.low,
     });
-    if (session.mode === 'siege') suitHud.update(playing ? dt : 0, siege.suit, player.feet, look.yaw);
+    if (session.mode === 'siege') {
+      suitHud.update(playing ? dt : 0, siege.suit, player.feet, look.yaw);
+      roundHud.update(playing ? dt : 0, siege.rounds);
+    }
     hud.update({
       dt,
       player,
@@ -438,12 +453,12 @@ async function boot() {
   }
 
   // Shows the results and records a high score. Time Trial and Range rank by score,
-  // the Oxygen Run by how long you survived, Drone Siege by drones destroyed.
+  // the Oxygen Run by how long you survived, Drone Siege by the round you reached.
   function endRun() {
     const mode = session.mode;
-    const value = mode === 'oxygenRun' ? Math.floor(session.elapsed) : mode === 'siege' ? siege.kills : scoring.score;
+    const value = mode === 'oxygenRun' ? Math.floor(session.elapsed) : mode === 'siege' ? siege.rounds.round : scoring.score;
     const newBest = submitHighScore(mode, value);
-    const siegeStats = mode === 'siege' ? { kills: siege.kills, coreKills: siege.coreKills } : undefined;
+    const siegeStats = mode === 'siege' ? { round: siege.rounds.round, kills: siege.kills, coreKills: siege.coreKills } : undefined;
     menu.showResults({ mode, reason: session.endReason ?? 'timeUp', scoring, survived: session.elapsed, newBest, siege: siegeStats });
     document.exitPointerLock();
   }
@@ -477,7 +492,7 @@ async function boot() {
   // lowg.tick(1 / 60) advances one frame by hand, which is handy for testing.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      lowg: { renderer, scene, composer, audio, ejecta, input, look, player, camera, world, city, oxygen, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, settings, sun, rocks, sky, siege, suitHud, hud, tick, startRun },
+      lowg: { renderer, scene, composer, audio, ejecta, input, look, player, camera, world, city, oxygen, rifle, recoil, viewmodel, impacts, targets, scoring, session, menu, settings, sun, rocks, sky, siege, suitHud, roundHud, hud, tick, startRun },
     });
   }
 }

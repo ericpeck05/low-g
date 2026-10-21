@@ -1,0 +1,20 @@
+/* Drone Siege rounds: the counter above the suit readout, and the banner across the visor. */
+
+.round-counter { color: var(--hostile); text-shadow: 0 0 10px rgba(255, 60, 30, 0.6), 0 0 2px #000; margin-bottom: 4px; }
+.round-counter .label { color: var(--dim); }
+.round-counter .mark { height: 66px; display: flex; align-items: center; }
+.round-counter .mark span { font-size: 64px; font-weight: 700; line-height: 1; letter-spacing: 0.02em; }
+.round-counter .mark svg { height: 62px; overflow: visible; filter: drop-shadow(0 0 6px rgba(255, 60, 30, 0.7)); }
+.round-counter .mark polyline { fill: none; stroke: var(--hostile); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+.round-counter .left { color: var(--white); font-size: 12px; letter-spacing: 0.14em; margin-top: 4px; }
+.round-counter.flash .mark { animation: round-flash 1.4s ease-out; }
+@keyframes round-flash {
+  0% { color: var(--white); transform: scale(1.25); filter: brightness(2); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+
+.round-banner { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); text-align: center;
+  opacity: 0; transition: opacity 0.5s; white-space: nowrap; }
+.round-banner .title { color: var(--hostile); font-size: 46px; font-weight: 700; letter-spacing: 0.24em;
+  text-shadow: 0 0 18px rgba(255, 60, 30, 0.7), 0 0 2px #000; }
+.round-banner .subtitle { color: var(--white); font-size: 14px; letter-spacing: 0.3em; margin-top: 8px; }

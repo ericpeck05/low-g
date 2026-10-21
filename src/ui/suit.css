@@ -1,5 +1,4 @@
 /* Drone Siege: suit integrity and damage on the visor. Hostile things are red-orange. */
-:root { --hostile: #ff4a2a; }
 
 /* The readout, above oxygen. It blinks orange when critical. */
 .suit .bar i.on { background: var(--white); }

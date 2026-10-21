@@ -281,13 +281,45 @@ export const CONFIG = {
   siege: {
     maxDrones: 24, // most hostile drones alive at once (the size of the drone pool)
     maxBolts: 96, // most plasma bolts in flight at once
-    testDrones: 3, // early test mode (before rounds): scouts kept alive at a time
-    testRespawnDelay: 4, // seconds before a destroyed scout is replaced
-    spawnDistance: [24, 34], // meters from the player where drones appear
-    spawnHeight: [6, 11], // meters above the player's feet
     rifleDamage: 34, // per rifle hit on a drone
     coreMultiplier: 2, // a hit on the glowing core does this much more damage
-    lostSightTime: 6, // seconds a drone can go without seeing you before it moves somewhere that can
+    lostSightTime: 6, // seconds a drone can go without seeing you before it comes hunting for you
+    huntSpeed: 1.35, // how much faster than normal a hunting drone flies
+    huntTimeout: 10, // seconds of hunting without finding you before it's sent back to a spawn point
+
+    // The rounds. Round n has more drones, tougher and sharper ones, arriving faster.
+    rounds: {
+      firstDelay: 5, // seconds before round 1 starts
+      intermission: 10, // seconds of quiet between rounds
+      // Drones in round n: base + perRound × (n - 1) + growth × (n - 1)²
+      baseDrones: 6,
+      dronesPerRound: 2.5,
+      dronesGrowth: 0.15,
+      // Most drones flying at once in round n (never more than maxDrones).
+      baseAlive: 4,
+      alivePerRound: 2,
+      spawnInterval: 2.2, // seconds between arrivals in round 1...
+      spawnIntervalShrink: 0.93, // ...multiplied by this each round...
+      minSpawnInterval: 0.5, // ...down to this
+      spawnWarning: 1.1, // seconds a spawn point glows red before a drone comes out
+      spawnRange: [12, 90], // meters from the player a spawn point can be used
+      // Health: +healthPerRound each round up to round 10, then ×healthGrowth per round.
+      healthPerRound: 0.12,
+      healthGrowth: 1.08,
+      fireRatePerRound: 0.03, // drones fire this much faster each round...
+      maxFireRate: 1.8, // ...up to this many times their round-1 rate
+      spreadPerRound: 0.03, // aim error shrinks by this fraction each round...
+      minSpread: 0.45, // ...down to this fraction of round 1's
+      leadPerRound: 0.02, // and they lead their shots a little more each round...
+      maxLead: 0.85, // ...up to this
+    },
+
+    // Which drone types can appear, from which round, and how often (relative weights).
+    // More types arrive in Siege phase 4.
+    roster: {
+      scout: { fromRound: 1, weight: 1 },
+    },
+
     glowColor: [1, 0.05, 0.03], // hostile red (red, green, blue)
     glowIdle: 1.4, // brightness of the core normally (kept low so it stays a deep red)
     glowCharged: 9, // brightness at the moment it fires: white-hot, with a bloom flare

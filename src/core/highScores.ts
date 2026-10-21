@@ -2,7 +2,7 @@ import type { Mode } from './session';
 
 // Best results for each mode, saved in this browser only (localStorage).
 // Range and Time Trial keep the best score; Oxygen Run keeps the longest survival time;
-// Drone Siege keeps the most drones destroyed in one game (until rounds arrive).
+// Drone Siege keeps the highest round reached.
 
 const KEY = 'lowg.highScores.v1';
 
@@ -10,11 +10,15 @@ export type HighScores = Record<Mode, number>;
 
 const EMPTY: HighScores = { range: 0, timeTrial: 0, oxygenRun: 0, siege: 0 };
 
+// Drone Siege's record is saved as "siegeRound". (Its first test version saved drone
+// counts as "siege"; those are ignored rather than shown as rounds.)
+const SIEGE_KEY = 'siegeRound';
+
 export function loadHighScores(): HighScores {
   // Storage can be blocked (private windows, strict settings): fall back to no records.
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}');
-    return { ...EMPTY, ...saved };
+    return { ...EMPTY, ...saved, siege: saved[SIEGE_KEY] ?? 0 };
   } catch {
     return { ...EMPTY };
   }
@@ -25,8 +29,9 @@ export function submitHighScore(mode: Mode, value: number): boolean {
   const scores = loadHighScores();
   if (value <= scores[mode]) return false;
   scores[mode] = value;
+  const { siege, ...others } = scores;
   try {
-    localStorage.setItem(KEY, JSON.stringify(scores));
+    localStorage.setItem(KEY, JSON.stringify({ ...others, [SIEGE_KEY]: siege }));
   } catch {
     // Couldn't save; the result still counts for this screen.
   }

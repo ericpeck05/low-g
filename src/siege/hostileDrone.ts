@@ -4,10 +4,13 @@ import { CONFIG } from '../config';
 import { applySpread } from '../weapons/hitscan';
 import { terrainHeight } from '../world/terrain';
 import { BODY_RADIUS, CORE_OFFSET, CORE_RADIUS } from './droneFleet';
+import type { NavGraph } from './navGraph';
+import type { DroneStats } from './rounds';
 
-// One hostile scout drone's mind and body. It circles the player at a comfortable
-// range, steers around buildings and the dome glass, and every few seconds charges up
-// (its core glows brighter, so you can react) and fires a slow plasma bolt.
+// One hostile drone's mind and body. It comes out of a spawn point, then circles the
+// player at a comfortable range, steering around buildings and the dome glass. Every few
+// seconds it charges up (its core glows brighter, so you can react) and fires a slow
+// plasma bolt. If it loses track of you for a while, it comes hunting.
 
 /** What a drone needs to know about the world and the player each frame. */
 export interface DroneContext {
@@ -19,6 +22,7 @@ export interface DroneContext {
   collider: RAPIER.Collider; // the player's body
   insideDome: boolean; // which side of the dome glass the player is on
   others: HostileDrone[];
+  nav: NavGraph; // the open-air routes through the dome, for finding the player
 }
 
 export type DroneEvent =
@@ -26,6 +30,8 @@ export type DroneEvent =
   | { kind: 'fire'; drone: HostileDrone; from: THREE.Vector3; direction: THREE.Vector3 };
 
 const UP = new THREE.Vector3(0, 1, 0);
+const EMERGE_TIME = 1.1; // seconds it spends flying out of its spawn point
+const EMERGE_SPEED = 3.5; // m/s
 const random = (range: number[]) => range[0] + Math.random() * (range[1] - range[0]);
 
 export class HostileDrone {
@@ -37,6 +43,7 @@ export class HostileDrone {
   spin = 0; // rotor angle
   /** Seconds since it last saw the player. */
   unseenTime = 0;
+  stats: DroneStats = { type: 'scout', health: 0, fireRate: 1, aimSpread: 0, aimLead: 0 };
   readonly body: RAPIER.Collider;
   readonly core: RAPIER.Collider;
 
@@ -52,6 +59,11 @@ export class HostileDrone {
   private sightTimer = 0;
   private dodgeTimer = 0;
   private roll = 0;
+  private emergeTimer = 0;
+  private emergeDirection = new THREE.Vector3();
+  private route: THREE.Vector3[] = []; // waypoints toward the player while hunting
+  private routeTimer = 0;
+  private orbitReach = Infinity; // open space from the player toward its circling spot
   private ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
   private look = new THREE.Matrix4();
   private facing = new THREE.Quaternion();
@@ -66,11 +78,17 @@ export class HostileDrone {
     this.core.setEnabled(false);
   }
 
-  /** Appear at `position`, facing the point `toward` (the player). */
-  spawn(position: THREE.Vector3, toward: THREE.Vector3, health: number) {
-    const cfg = CONFIG.siege.scout;
+  /**
+   * Appear at `position`, facing the point `toward` (the player), with this round's stats.
+   * exit: the way out of its spawn point, which it flies along for a moment first.
+   */
+  spawn(position: THREE.Vector3, toward: THREE.Vector3, stats: DroneStats, exit: THREE.Vector3 | null = null) {
+    const cfg = this.config(stats);
     this.active = true;
-    this.health = health;
+    this.stats = stats;
+    this.health = stats.health;
+    this.emergeTimer = exit ? EMERGE_TIME : 0;
+    if (exit) this.emergeDirection.copy(exit);
     this.position.copy(position);
     this.velocity.set(0, 0, 0);
     this.orbit = Math.atan2(position.x - toward.x, position.z - toward.z);
@@ -78,10 +96,12 @@ export class HostileDrone {
     this.flipTimer = random([2.5, 6]);
     this.range = random(cfg.range);
     this.height = random(cfg.height);
-    this.fireTimer = random(cfg.fireInterval) + 0.8; // a moment to get its bearings first
+    this.fireTimer = random(cfg.fireInterval) / stats.fireRate + 0.8; // a moment to get its bearings first
     this.charging = false;
     this.sees = false;
     this.unseenTime = 0;
+    this.route = [];
+    this.orbitReach = Infinity;
     this.sightTimer = Math.random() * 0.15; // spread the sight checks over different frames
     this.look.lookAt(position, toward, UP);
     this.rotation.setFromRotationMatrix(this.look);
@@ -99,7 +119,12 @@ export class HostileDrone {
 
   /** 0 normally, rising to 1 as it charges a shot. */
   get glow() {
-    return this.charging ? 1 - this.chargeTimer / CONFIG.siege.scout.telegraph : 0;
+    return this.charging ? 1 - this.chargeTimer / this.config().telegraph : 0;
+  }
+
+  /** Lost track of you, so it's flying straight for you instead of circling at range. */
+  get hunting() {
+    return this.unseenTime > CONFIG.siege.lostSightTime;
   }
 
   /** Where the glowing core (and its gun) is in the world. */
@@ -116,11 +141,25 @@ export class HostileDrone {
   update(dt: number, ctx: DroneContext, events: DroneEvent[]) {
     this.spin += dt * 38;
 
+    // Coming out of its spawn point: straight out, before it starts thinking.
+    if (this.emergeTimer > 0) {
+      this.emergeTimer -= dt;
+      this.velocity.copy(this.emergeDirection).multiplyScalar(EMERGE_SPEED);
+      this.move(dt, ctx);
+      this.face(dt, ctx);
+      this.placeColliders();
+      return;
+    }
+
     // Can it see the player? Checked a few times a second, not every frame.
     this.sightTimer -= dt;
     if (this.sightTimer <= 0) {
       this.sightTimer = 0.15;
+      const wasHunting = this.hunting;
       this.sees = this.canSee(ctx);
+      // Found you again: take up circling from where it is now.
+      if (this.sees && wasHunting) this.orbit = Math.atan2(this.position.x - ctx.feet.x, this.position.z - ctx.feet.z);
+      this.orbitReach = this.openSpace(ctx);
     }
     this.unseenTime = this.sees ? 0 : this.unseenTime + dt;
 
@@ -132,26 +171,35 @@ export class HostileDrone {
 
   // Head for a spot on a circle around the player, at its own range and height,
   // circling one way and now and then switching. Then dodge walls and other drones.
+  // Hunting, it heads straight for you (a little above), faster.
   private steer(dt: number, ctx: DroneContext) {
-    const cfg = CONFIG.siege.scout;
+    const cfg = this.config();
     this.flipTimer -= dt;
     if (this.flipTimer <= 0) {
       this.orbitDirection *= -1;
       this.flipTimer = random([2.5, 6]);
     }
-    this.orbit += this.orbitDirection * (cfg.strafeSpeed / this.range) * dt;
-    const goal = new THREE.Vector3(
-      ctx.feet.x + Math.sin(this.orbit) * this.range,
-      ctx.feet.y + this.height,
-      ctx.feet.z + Math.cos(this.orbit) * this.range,
-    );
-    keepOnSide(goal, ctx.insideDome);
-    goal.y = Math.max(goal.y, terrainHeight(goal.x, goal.z) + 2);
+    let goal: THREE.Vector3;
+    let topSpeed = cfg.speed;
+    if (this.hunting) {
+      goal = this.huntGoal(dt, ctx);
+      topSpeed *= CONFIG.siege.huntSpeed;
+    } else {
+      this.orbit += this.orbitDirection * (cfg.strafeSpeed / this.range) * dt;
+      goal = this.orbitSpot(ctx);
+      // Stay in the same open space as the player: indoors or under a walkway, its
+      // circling spot is pulled in short of the first wall between you and it.
+      const out = goal.clone().sub(ctx.head);
+      const room = this.orbitReach - 1.5;
+      if (out.length() > room) goal.copy(ctx.head).addScaledVector(out.normalize(), Math.max(4, room));
+      keepOnSide(goal, ctx.insideDome);
+      goal.y = Math.max(goal.y, terrainHeight(goal.x, goal.z) + 2);
+    }
 
     // Fly toward the goal, easing off as it gets close.
     const toGoal = goal.sub(this.position);
     const distance = toGoal.length();
-    const desired = toGoal.multiplyScalar(Math.min(cfg.speed, distance * 1.2) / Math.max(distance, 1e-3));
+    const desired = toGoal.multiplyScalar(Math.min(topSpeed, distance * 1.2) / Math.max(distance, 1e-3));
     const accel = desired.sub(this.velocity).multiplyScalar(2);
 
     // Keep apart from other drones.
@@ -180,14 +228,22 @@ export class HostileDrone {
           this.height = Math.min(cfg.height[1] + 3, this.height + 1.5);
           this.dodgeTimer = 1.5;
         }
+        // Hunting: slide along the wall and climb, to find a way around or over it.
+        if (this.hunting) {
+          const along = new THREE.Vector3().crossVectors(normal, UP).multiplyScalar(this.orbitDirection);
+          accel.addScaledVector(along, cfg.acceleration * 1.5).addScaledVector(UP, cfg.acceleration);
+        }
       }
     }
     this.dodgeTimer -= dt;
     accel.clampLength(0, cfg.acceleration * (avoiding ? 2.5 : 1));
-    this.velocity.addScaledVector(accel, dt).clampLength(0, cfg.speed);
+    this.velocity.addScaledVector(accel, dt).clampLength(0, topSpeed);
+    this.move(dt, ctx);
+  }
 
-    // Move, but never into anything: if the step would touch a wall, stop at it and
-    // lose the speed that was going into it.
+  // Move, but never into anything: if the step would touch a wall, stop at it and
+  // lose the speed that was going into it.
+  private move(dt: number, ctx: DroneContext) {
     const step = this.velocity.length() * dt;
     if (step > 1e-5) {
       const direction = this.velocity.clone().normalize();
@@ -220,6 +276,38 @@ export class HostileDrone {
     }
   }
 
+  // Where it would circle to right now, at its range and height around the player.
+  private orbitSpot(ctx: DroneContext) {
+    return new THREE.Vector3(
+      ctx.feet.x + Math.sin(this.orbit) * this.range,
+      ctx.feet.y + this.height,
+      ctx.feet.z + Math.cos(this.orbit) * this.range,
+    );
+  }
+
+  // Hunting: inside the dome, follow a route through the open air to somewhere it can
+  // see you (refreshed every so often, as you move). Outside, the ground is open, so it
+  // flies straight for you.
+  private huntGoal(dt: number, ctx: DroneContext) {
+    this.routeTimer -= dt;
+    if (ctx.insideDome && this.routeTimer <= 0) {
+      this.route = ctx.nav.route(this.position, ctx.head, ctx.collider);
+      this.routeTimer = 1.5;
+    }
+    while (this.route.length > 0 && this.position.distanceTo(this.route[0]) < 2.5) this.route.shift();
+    return this.route.length > 0 ? this.route[0].clone() : ctx.head.clone().setY(ctx.head.y + 2);
+  }
+
+  // How far you can see from your head toward its circling spot before something's in the way.
+  private openSpace(ctx: DroneContext) {
+    const out = this.orbitSpot(ctx).sub(ctx.head);
+    const distance = out.length();
+    this.ray.origin = ctx.head;
+    this.ray.dir = out.divideScalar(distance);
+    const hit = ctx.world.castRay(this.ray, distance, true, undefined, undefined, ctx.collider, undefined, ctx.blocks);
+    return hit ? hit.timeOfImpact : Infinity;
+  }
+
   // Keep the core pointed at the player, and lean into turns.
   private face(dt: number, ctx: DroneContext) {
     this.look.lookAt(this.position, ctx.head, UP); // a camera-style look: -z toward the player
@@ -233,7 +321,7 @@ export class HostileDrone {
 
   // Charge (glowing brighter) for a moment, then fire, unless it loses sight of you.
   private shoot(dt: number, ctx: DroneContext, events: DroneEvent[]) {
-    const cfg = CONFIG.siege.scout;
+    const cfg = this.config();
     if (this.charging) {
       this.chargeTimer -= dt;
       if (!this.sees) {
@@ -241,7 +329,7 @@ export class HostileDrone {
         this.fireTimer = 0.8;
       } else if (this.chargeTimer <= 0) {
         this.charging = false;
-        this.fireTimer = random(cfg.fireInterval);
+        this.fireTimer = random(cfg.fireInterval) / this.stats.fireRate;
         const from = this.corePosition();
         events.push({ kind: 'fire', drone: this, from, direction: this.aim(from, ctx) });
       }
@@ -257,12 +345,12 @@ export class HostileDrone {
   }
 
   // Aim at your chest, partly leading your movement, with a little error.
+  // Both get sharper in later rounds.
   private aim(from: THREE.Vector3, ctx: DroneContext) {
-    const cfg = CONFIG.siege.scout;
     const target = ctx.head.clone().setY(ctx.head.y - 0.45);
     const flightTime = from.distanceTo(target) / CONFIG.siege.bolt.speed;
-    target.addScaledVector(ctx.velocity, flightTime * cfg.aimLead);
-    return applySpread(target.sub(from).normalize(), cfg.aimSpread);
+    target.addScaledVector(ctx.velocity, flightTime * this.stats.aimLead);
+    return applySpread(target.sub(from).normalize(), this.stats.aimSpread);
   }
 
   // A clear line from its core to your head (the first thing the ray meets is you).
@@ -270,7 +358,7 @@ export class HostileDrone {
     const from = this.corePosition();
     const toHead = ctx.head.clone().sub(from);
     const distance = toHead.length();
-    if (distance > CONFIG.siege.scout.sightRange * 1.3) return false;
+    if (distance > this.config().sightRange * 1.3) return false;
     this.ray.origin = from;
     this.ray.dir = toHead.divideScalar(distance);
     const hit = ctx.world.castRay(this.ray, distance, true, undefined, undefined, undefined, undefined, ctx.blocks);
@@ -281,6 +369,11 @@ export class HostileDrone {
     this.ray.origin = from;
     this.ray.dir = direction;
     return ctx.world.castRayAndGetNormal(this.ray, distance, true, undefined, undefined, ctx.collider, undefined, ctx.blocks);
+  }
+
+  /** The settings for this drone's type (only scouts so far). */
+  private config(stats = this.stats) {
+    return CONFIG.siege[stats.type];
   }
 
   private placeColliders() {

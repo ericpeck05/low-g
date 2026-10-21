@@ -12,7 +12,7 @@ const MODE_BLURBS: Record<Mode, string> = {
   range: 'Free practice around the city. No timer. Run out of air outside and you wake up back in the plaza.',
   timeTrial: '60 seconds. Highest score wins. Going outside costs oxygen.',
   oxygenRun: 'Locked out on the surface. Every hit buys air, and the air goes faster the longer you last.',
-  siege: 'Hostile drones that shoot back. Dodge their red plasma bolts and hit the glowing core. Early test: endless scouts, no rounds yet.',
+  siege: 'Rounds of hostile drones that shoot back, more and tougher each round. Dodge their red plasma bolts and hit the glowing core. Survive as many rounds as you can.',
 };
 
 const CONTROLS: [string, string][] = [
@@ -36,7 +36,7 @@ export interface RunSummary {
   scoring: Scoring;
   survived: number; // seconds
   newBest: boolean;
-  siege?: { kills: number; coreKills: number }; // Drone Siege only
+  siege?: { round: number; kills: number; coreKills: number }; // Drone Siege only
 }
 
 const END_TITLES: Record<EndReason, string> = {
@@ -48,7 +48,7 @@ const END_TITLES: Record<EndReason, string> = {
 /** A saved best result in words: a time, a score, or a drone count. */
 function recordText(mode: Mode, value: number) {
   if (mode === 'oxygenRun') return `${formatTime(value)} SURVIVED`;
-  if (mode === 'siege') return `${value} DRONES`;
+  if (mode === 'siege') return `ROUND ${value}`;
   return `${value.toLocaleString('en-US')} PTS`;
 }
 
@@ -214,6 +214,7 @@ export class Menu {
     const accuracyText = accuracy === null ? '-' : `${accuracy.toFixed(1)}%`;
     if (run.mode === 'oxygenRun' || run.siege) rows.push(['SURVIVED', formatTime(run.survived)]);
     if (run.siege) {
+      rows.unshift(['ROUND REACHED', String(run.siege.round)]);
       rows.push(
         ['DRONES DESTROYED', String(run.siege.kills)],
         ['CORE KILLS', String(run.siege.coreKills)],

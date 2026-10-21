@@ -6,6 +6,7 @@
   --faint: #8a8379;
   --amber: #ffa31a;
   --orange: #ff5a1f;
+  --hostile: #ff4a2a; /* Drone Siege: anything hostile is red-orange */
   --panel: rgba(0, 0, 0, 0.45);
   --panel-solid: rgba(8, 8, 8, 0.86);
   --line: rgba(245, 240, 232, 0.2);

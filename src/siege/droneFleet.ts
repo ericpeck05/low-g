@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config';
+import { glowTexture } from './glowTexture';
 
 // Draws every hostile drone at once. Each part of the drone (the dark body, the red
 // glow, the spinning rotors) is one InstancedMesh holding a copy per drone, so the whole
@@ -40,7 +41,7 @@ export class DroneFleet {
     this.glow = this.batch(glowGeometry(), GLOW, count, false);
     this.rotors = this.batch(new THREE.BoxGeometry(0.34, 0.012, 0.045), BODY, count * ROTORS, true);
     this.glow.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
-    const haloTexture = softDot();
+    const haloTexture = glowTexture();
     for (let i = 0; i < count; i++) {
       const material = new THREE.SpriteMaterial({ map: haloTexture, color: this.red, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
       const halo = new THREE.Sprite(material);
@@ -142,20 +143,6 @@ function glowGeometry() {
   return mergeGeometries([tint(core, 1), tint(band, 0.35)])!;
 }
 
-// A round soft glow, bright at the center and fading out.
-function softDot() {
-  const size = 64;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  gradient.addColorStop(0, 'rgba(255,255,255,0.9)');
-  gradient.addColorStop(0.3, 'rgba(255,255,255,0.35)');
-  gradient.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, size, size);
-  return new THREE.CanvasTexture(canvas);
-}
 
 function withoutUv(geometry: THREE.BufferGeometry) {
   geometry.deleteAttribute('uv');

@@ -1,19 +1,20 @@
-import RAPIER from '@dimforge/rapier3d-compat';
+import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import type { ImpactEffects } from '../weapons/impactEffects';
 import { isInsideDome } from '../world/city/dome';
-import { terrainHeight } from '../world/terrain';
 import { Bolts } from './bolts';
 import { DroneFleet } from './droneFleet';
 import { SiegeEffects } from './effects';
 import { type DroneContext, type DroneEvent, HostileDrone } from './hostileDrone';
+import { NavGraph } from './navGraph';
+import { type DroneStats, RoundDirector, droneStats } from './rounds';
+import { type SpawnPoint, SpawnPoints } from './spawnPoints';
 import { Suit } from './suit';
 
-// Drone Siege: hostile drones that hunt you and shoot back. This owns the drone pool,
-// their plasma bolts, your suit integrity and the explosions, and reports what happened
-// each frame (for sounds and the HUD). For now (before rounds) it keeps a few scouts
-// alive at a time and replaces each one shortly after it's destroyed.
+// Drone Siege: rounds of hostile drones that hunt you and shoot back. This owns the
+// drone pool, the spawn points, their plasma bolts, your suit integrity and the
+// explosions, and reports what happened each frame (for sounds and the HUD).
 
 /** The player, as the siege sees them. */
 export interface SiegePlayer {
@@ -31,7 +32,10 @@ export type SiegeEvent =
   | { kind: 'whiz'; position: THREE.Vector3 }
   | { kind: 'playerHit'; damage: number; from: THREE.Vector3 }
   | { kind: 'suitDestroyed' }
-  | { kind: 'arrived'; position: THREE.Vector3 };
+  | { kind: 'spawnWarning'; position: THREE.Vector3 }
+  | { kind: 'arrived'; position: THREE.Vector3 }
+  | { kind: 'roundStart'; round: number }
+  | { kind: 'roundEnd'; round: number };
 
 /** What a shot did to a drone. */
 export interface DroneHit {
@@ -40,20 +44,29 @@ export interface DroneHit {
   position: THREE.Vector3;
 }
 
+/** A drone on its way out of a spawn point. */
+interface Arrival {
+  point: SpawnPoint;
+  timer: number;
+  stats: DroneStats;
+}
+
 export class SiegeMode {
   readonly suit = new Suit();
+  readonly rounds = new RoundDirector();
   readonly fleet: DroneFleet;
+  readonly spawnPoints: SpawnPoints;
   readonly bolts: Bolts;
   readonly effects: SiegeEffects;
+  readonly nav: NavGraph;
   active = false;
   kills = 0;
   coreKills = 0;
   private drones: HostileDrone[] = [];
   private byCollider = new Map<number, HostileDrone>(); // collider handle -> drone
-  private respawns: number[] = []; // seconds until each queued replacement scout arrives
+  private arrivals: Arrival[] = [];
   private events: SiegeEvent[] = [];
   private droneEvents: DroneEvent[] = [];
-  private test = new RAPIER.Ball(0.8);
 
   /** True for anything solid that isn't a hostile drone (for rays that should pass through them). */
   readonly blocks = (collider: RAPIER.Collider) => !this.byCollider.has(collider.handle);
@@ -71,6 +84,13 @@ export class SiegeMode {
       this.byCollider.set(drone.body.handle, drone);
       this.byCollider.set(drone.core.handle, drone);
     }
+    this.spawnPoints = new SpawnPoints(scene);
+    // Collision queries only see colliders once the physics world has stepped, and at
+    // load it hasn't yet. Nothing moves in a step this early.
+    world.step();
+    const started = performance.now();
+    this.nav = new NavGraph(world, this.blocks);
+    if (import.meta.env.DEV) console.debug(`Drone routes: ${this.nav.size} points in ${Math.round(performance.now() - started)} ms`);
     this.bolts = new Bolts(scene, world, this.blocks);
     this.effects = new SiegeEffects(scene, world, this.blocks, impacts);
     this.setShown(false);
@@ -78,21 +98,23 @@ export class SiegeMode {
 
   /** The glowing parts, for leaving out of ambient occlusion. */
   get glowObjects() {
-    return [...this.fleet.glowObjects, this.bolts.mesh, ...this.effects.glowObjects];
+    return [...this.fleet.glowObjects, this.bolts.mesh, ...this.effects.glowObjects, ...this.spawnPoints.glowObjects];
   }
 
+  /** Drones flying right now. */
   get alive() {
     return this.drones.filter((d) => d.active).length;
   }
 
-  start(player: SiegePlayer) {
+  /** A new game: round 1 starts after a short quiet. */
+  start() {
     this.stop();
     this.active = true;
     this.setShown(true);
     this.kills = 0;
     this.coreKills = 0;
     this.suit.reset();
-    for (let i = 0; i < CONFIG.siege.testDrones; i++) this.spawn(player);
+    this.rounds.start();
   }
 
   /** Clear everything away (leaving the mode). */
@@ -102,18 +124,10 @@ export class SiegeMode {
       drone.despawn();
       this.fleet.hide(drone.index);
     }
-    this.respawns = [];
+    this.arrivals = [];
     this.bolts.clear();
     this.effects.clear();
     this.setShown(false);
-  }
-
-  // The drone, bolt and debris batches are drawn even when every copy is hidden, so
-  // outside Drone Siege they're switched off entirely.
-  private setShown(shown: boolean) {
-    this.fleet.group.visible = shown;
-    this.bolts.mesh.visible = shown;
-    this.effects.debris.visible = shown;
   }
 
   /** If the collider is part of a hostile drone, damage it. Otherwise null. */
@@ -129,7 +143,7 @@ export class SiegeMode {
       this.fleet.hide(drone.index);
       this.kills++;
       if (core) this.coreKills++;
-      this.respawns.push(CONFIG.siege.testRespawnDelay);
+      this.rounds.onDestroyed();
     }
     return { core, destroyed, position };
   }
@@ -139,6 +153,13 @@ export class SiegeMode {
     this.events.length = 0;
     this.effects.update(dt);
     if (!this.active) return this.events;
+    const inside = isInsideDome(player.feet);
+
+    // The rounds: when to start one, and when the next drone comes in.
+    for (const event of this.rounds.update(dt, this.alive + this.arrivals.length)) this.events.push(event);
+    if (this.rounds.wantsSpawn) this.sendDrone(player, inside);
+    this.spawnPoints.update(dt);
+    this.updateArrivals(dt, player);
 
     const ctx: DroneContext = {
       world: this.world,
@@ -147,17 +168,16 @@ export class SiegeMode {
       head: player.head,
       velocity: player.velocity,
       collider: player.collider,
-      insideDome: isInsideDome(player.feet),
+      insideDome: inside,
       others: this.drones,
+      nav: this.nav,
     };
     this.droneEvents.length = 0;
     for (const drone of this.drones) {
       if (!drone.active) continue;
       drone.update(dt, ctx, this.droneEvents);
-      // Lost you behind walls for too long: it gives up there and comes in from
-      // somewhere it can find you.
-      if (drone.unseenTime > CONFIG.siege.lostSightTime) this.relocate(drone, player);
-      this.fleet.set(drone.index, drone.position, drone.rotation, drone.glow, drone.spin);
+      if (this.lost(drone, inside)) this.recall(drone);
+      else this.fleet.set(drone.index, drone.position, drone.rotation, drone.glow, drone.spin);
     }
     for (const event of this.droneEvents) {
       if (event.kind === 'charge') this.events.push({ kind: 'charge', position: event.drone.position.clone() });
@@ -180,57 +200,60 @@ export class SiegeMode {
       }
     }
     this.suit.update(dt);
-
-    // Replacements for destroyed scouts.
-    for (let i = this.respawns.length - 1; i >= 0; i--) {
-      this.respawns[i] -= dt;
-      if (this.respawns[i] <= 0 && this.spawn(player)) this.respawns.splice(i, 1);
-    }
     return this.events;
   }
 
-  /** Bring in a scout somewhere around the player. Returns false if the pool is full or no spot was free. */
-  spawn(player: SiegePlayer) {
-    const drone = this.drones.find((d) => !d.active);
-    if (!drone) return false;
-    const spot = this.findSpawnSpot(player);
-    if (!spot) return false;
-    drone.spawn(spot, player.head, CONFIG.siege.scout.health);
-    this.fleet.set(drone.index, drone.position, drone.rotation, 0, 0);
-    this.effects.arrive(spot);
-    this.events.push({ kind: 'arrived', position: spot.clone() });
-    return true;
-  }
-
-  private relocate(drone: HostileDrone, player: SiegePlayer) {
-    const spot = this.findSpawnSpot(player);
-    if (!spot) return;
-    this.effects.arrive(drone.position);
-    drone.spawn(spot, player.head, drone.health);
-    this.effects.arrive(spot);
-  }
-
-  // A random open spot at spawn distance and height around the player, on the same side
-  // of the dome glass, and not inside a building.
-  private findSpawnSpot(player: SiegePlayer) {
-    const { spawnDistance, spawnHeight } = CONFIG.siege;
-    const inside = isInsideDome(player.feet);
-    for (let attempt = 0; attempt < 16; attempt++) {
-      const angle = Math.random() * Math.PI * 2;
-      // Closer in after a few failed tries (a small room has less space).
-      const shrink = 1 - attempt / 24;
-      const distance = (spawnDistance[0] + Math.random() * (spawnDistance[1] - spawnDistance[0])) * shrink;
-      const spot = new THREE.Vector3(
-        player.feet.x + Math.sin(angle) * distance,
-        player.feet.y + spawnHeight[0] + Math.random() * (spawnHeight[1] - spawnHeight[0]),
-        player.feet.z + Math.cos(angle) * distance,
-      );
-      if (spot.y < terrainHeight(spot.x, spot.z) + 2) continue; // under a hill
-      if (isInsideDome(spot) !== inside) continue;
-      if (inside && !isInsideDome(spot.clone().multiplyScalar(1.08))) continue; // too close to the glass
-      const blocked = this.world.intersectionWithShape(spot, { x: 0, y: 0, z: 0, w: 1 }, this.test, undefined, undefined, undefined, undefined, this.blocks);
-      if (!blocked) return spot;
+  /** Bring in one drone of the current round: light up a spawn point, then send it out. */
+  sendDrone(player: SiegePlayer, inside = isInsideDome(player.feet)) {
+    const point = this.spawnPoints.pick(player.feet, inside);
+    if (!point) {
+      this.rounds.onSpawnFailed();
+      return;
     }
-    return null;
+    this.spawnPoints.warn(point);
+    this.arrivals.push({ point, timer: CONFIG.siege.rounds.spawnWarning, stats: droneStats(Math.max(1, this.rounds.round)) });
+    this.events.push({ kind: 'spawnWarning', position: point.position.clone() });
+  }
+
+  // Drones coming out of spawn points once their warning glow is done.
+  private updateArrivals(dt: number, player: SiegePlayer) {
+    for (let i = this.arrivals.length - 1; i >= 0; i--) {
+      const arrival = this.arrivals[i];
+      arrival.timer -= dt;
+      if (arrival.timer > 0) continue;
+      const drone = this.drones.find((d) => !d.active);
+      if (!drone) continue; // every drone is flying: wait for one to go down
+      drone.spawn(arrival.point.position, player.head, arrival.stats, arrival.point.exit);
+      this.fleet.set(drone.index, drone.position, drone.rotation, 0, 0);
+      this.spawnPoints.release(arrival.point);
+      this.effects.arrive(arrival.point.position);
+      this.events.push({ kind: 'arrived', position: arrival.point.position.clone() });
+      this.arrivals.splice(i, 1);
+    }
+  }
+
+  // Hunting got nowhere: it gives up and goes back to come in again from a spawn point
+  // near you, so a round never stalls on a drone stuck somewhere. Straight away if it's on
+  // the other side of the dome glass, where it could never reach you.
+  private lost(drone: HostileDrone, playerInside: boolean) {
+    if (!drone.hunting) return false;
+    const wrongSide = isInsideDome(drone.position) !== playerInside;
+    return wrongSide || drone.unseenTime > CONFIG.siege.lostSightTime + CONFIG.siege.huntTimeout;
+  }
+
+  private recall(drone: HostileDrone) {
+    this.effects.arrive(drone.position);
+    drone.despawn();
+    this.fleet.hide(drone.index);
+    this.rounds.onRecalled();
+  }
+
+  // The drone, bolt and debris batches are drawn even when every copy is hidden, so
+  // outside Drone Siege they're switched off entirely.
+  private setShown(shown: boolean) {
+    this.fleet.group.visible = shown;
+    this.bolts.mesh.visible = shown;
+    this.effects.debris.visible = shown;
+    this.spawnPoints.setActive(shown);
   }
 }

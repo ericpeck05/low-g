@@ -2,6 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import type { ImpactEffects } from '../weapons/impactEffects';
+import { glowTexture } from './glowTexture';
 
 // What a hostile drone leaves behind when it blows up. In a vacuum there's no fireball
 // or smoke: a blinding flash of its plasma core, sparks flying in clean arcs, and chunks
@@ -209,19 +210,4 @@ export class SiegeEffects {
     f.sprite.scale.setScalar(size * 0.35);
     f.material.opacity = 1;
   }
-}
-
-// A soft round glow: bright in the middle, fading to nothing at the edge.
-function glowTexture() {
-  const size = 64;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  gradient.addColorStop(0, 'rgba(255,255,255,1)');
-  gradient.addColorStop(0.25, 'rgba(255,255,255,0.55)');
-  gradient.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, size, size);
-  return new THREE.CanvasTexture(canvas);
 }

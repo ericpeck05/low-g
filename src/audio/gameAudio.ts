@@ -131,6 +131,21 @@ export class GameAudio {
     this.play(this.pick(this.sounds.suitHits), 'body', { gain: 1 });
   }
 
+  /** Round start and round cleared: heard inside the helmet, like music. */
+  roundStart() {
+    this.play(this.sounds.roundStart, 'suit', { gain: 0.7 });
+  }
+
+  roundEnd() {
+    this.play(this.sounds.roundEnd, 'suit', { gain: 0.6 });
+  }
+
+  /** A spawn point opening: a drone is about to come out of it. */
+  spawnWarning(position: THREE.Vector3) {
+    if (this.tooSoon('spawn', 0.2)) return;
+    this.play(this.sounds.spawnWarning, 'world', { gain: 0.8, position });
+  }
+
   droneExplosion(position: THREE.Vector3) {
     this.play(this.pick(this.sounds.droneExplosions), 'world', { gain: 1, position, rate: 0.92 + Math.random() * 0.16 });
   }
@@ -333,5 +348,8 @@ function buildSounds(c: BaseAudioContext) {
     suitHits: range(3).map((i) => synth.suitHit(c, i)),
     droneExplosions: range(2).map((i) => synth.droneExplosion(c, i)),
     suitAlarm: synth.suitAlarm(c),
+    roundStart: synth.roundStart(c),
+    roundEnd: synth.roundEnd(c),
+    spawnWarning: synth.spawnWarning(c),
   };
 }

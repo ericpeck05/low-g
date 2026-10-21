@@ -378,6 +378,55 @@ export function suitAlarm(c: BaseAudioContext) {
   }, 0.45);
 }
 
+/** A round starting: a two-blast klaxon over a deep boom. */
+export function roundStart(c: BaseAudioContext) {
+  return make(c, 2.4, 1700, (out, rate, random) => {
+    thump(out, rate, 0, 70, 30, 0.6, 1.2);
+    for (const start of [0.05, 0.75]) {
+      const begin = seconds(start, rate);
+      let phase = 0;
+      for (let i = 0; i < seconds(0.6, rate); i++) {
+        const t = i / rate;
+        phase += (200 + 140 * Math.min(1, t / 0.25)) / rate; // a siren swelling up
+        const level = Math.min(1, t / 0.04) * Math.min(1, (0.6 - t) / 0.1);
+        out[begin + i] += ((phase % 1) * 2 - 1) * 0.35 * level;
+      }
+    }
+    add(out, rate, filter(noise(seconds(1.2, rate), random), rate, 'lowpass', 300), 0, 0.5, 0.4);
+  }, 0.75);
+}
+
+/** A round cleared: a low chord that sinks and fades, like a breath out. */
+export function roundEnd(c: BaseAudioContext) {
+  return make(c, 3.2, 1800, (out, rate) => {
+    for (const [from, to] of [[220, 165], [261.6, 196], [329.6, 247]]) {
+      let phase = 0;
+      for (let i = 0; i < out.length; i++) {
+        const t = i / rate;
+        phase += (to + (from - to) * Math.exp(-t / 0.9)) / rate;
+        const level = Math.min(1, t / 0.15) * Math.exp(-t / 1.1);
+        out[i] += (Math.sin(2 * Math.PI * phase) + 0.25 * Math.sin(4 * Math.PI * phase)) * level * 0.33;
+      }
+    }
+  }, 0.6);
+}
+
+/** A spawn point opening: a hatch clank and a rising electronic chirp. */
+export function spawnWarning(c: BaseAudioContext) {
+  return make(c, 0.9, 1900, (out, rate, random) => {
+    thump(out, rate, 0, 160, 70, 0.05, 0.7);
+    ping(out, rate, 0.01, [620, 1180, 1750], 0.05, 0.4);
+    let phase = 0;
+    const begin = seconds(0.15, rate);
+    for (let i = 0; i < seconds(0.6, rate); i++) {
+      const t = i / rate;
+      phase += (500 + 1400 * (t / 0.6) ** 2) / rate;
+      out[begin + i] += Math.sin(2 * Math.PI * phase) * 0.3 * Math.min(1, t / 0.05) * (1 - t / 0.6);
+    }
+    add(out, rate, filter(noise(seconds(0.3, rate), random), rate, 'bandpass', 2400, 1), 0.02, 0.3, 0.08);
+  }, 0.7);
+}
+
 /** A few seconds of plain noise, for looping sounds built from live filters. */
 export function noiseLoop(c: BaseAudioContext) {
   return make(c, 3, 999, (out, _rate, random) => out.set(noise(out.length, random)), 0.9);
