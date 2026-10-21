@@ -281,8 +281,58 @@ export const CONFIG = {
   siege: {
     maxDrones: 24, // most hostile drones alive at once (the size of the drone pool)
     maxBolts: 96, // most plasma bolts in flight at once
-    rifleDamage: 34, // per rifle hit on a drone
     coreMultiplier: 2, // a hit on the glowing core does this much more damage
+
+    points: {
+      start: 500, // what you start a game with
+      hit: 10, // each drone a shot hits (a shotgun blast on one drone counts once)
+      kill: 60,
+      coreKill: 100, // a kill with a hit on the core
+    },
+
+    // Weapons. You start with the sidearm and one empty slot (two weapons at most).
+    // The rest are bought at stations on the city's walls; buying one you already
+    // have refills its spare ammo for ammoPrice. damage is per pellet; pierce is how
+    // many drones one shot can pass through. falloff: [full damage up to this many
+    // meters, down to minDamage of it at this many meters]. Spreads are in degrees.
+    weapons: {
+      sidearm: {
+        name: 'P-9 SIDEARM', fireMode: 'semi', fireRate: 6, burstCount: 1, burstRate: 0, magazine: 12, reserve: 84,
+        reloadTime: 1.3, damage: 34, pellets: 1, pierce: 1, range: 250, falloff: [60, 250], minDamage: 0.6,
+        hipSpread: 0.9, adsSpread: 0.15, spreadPerShot: 0.55, spreadRecovery: 6,
+        adsFov: 60, eyeRelief: 0.3, recoil: { pitch: 1.1, yaw: 0.35, shake: 0.006, kickBack: 0.045, kickUp: 6 },
+        price: 0, ammoPrice: 0,
+      },
+      smg: {
+        name: 'PLASMA SMG', fireMode: 'auto', fireRate: 13, burstCount: 1, burstRate: 0, magazine: 45, reserve: 270,
+        reloadTime: 1.6, damage: 18, pellets: 1, pierce: 1, range: 150, falloff: [25, 120], minDamage: 0.5,
+        hipSpread: 2, adsSpread: 0.45, spreadPerShot: 0.22, spreadRecovery: 6,
+        adsFov: 55, eyeRelief: 0.17, recoil: { pitch: 0.32, yaw: 0.22, shake: 0.003, kickBack: 0.018, kickUp: 1.5 },
+        price: 500, ammoPrice: 250,
+      },
+      scatter: {
+        name: 'SCATTER CANNON', fireMode: 'semi', fireRate: 1.3, burstCount: 1, burstRate: 0, magazine: 6, reserve: 36,
+        reloadTime: 2.4, damage: 16, pellets: 9, pierce: 1, range: 60, falloff: [12, 38], minDamage: 0.3,
+        hipSpread: 4.5, adsSpread: 3.2, spreadPerShot: 0, spreadRecovery: 6,
+        adsFov: 62, eyeRelief: 0.2, recoil: { pitch: 3.4, yaw: 0.8, shake: 0.02, kickBack: 0.07, kickUp: 9 },
+        price: 900, ammoPrice: 450,
+      },
+      carbine: {
+        name: 'BURST CARBINE', fireMode: 'burst', fireRate: 2.6, burstCount: 3, burstRate: 15, magazine: 30, reserve: 180,
+        reloadTime: 1.8, damage: 40, pellets: 1, pierce: 1, range: 300, falloff: [80, 300], minDamage: 0.7,
+        hipSpread: 1.3, adsSpread: 0.1, spreadPerShot: 0.3, spreadRecovery: 5,
+        adsFov: 38, eyeRelief: 0.2, recoil: { pitch: 0.55, yaw: 0.2, shake: 0.005, kickBack: 0.028, kickUp: 2.6 },
+        price: 1100, ammoPrice: 550,
+      },
+      rail: {
+        name: 'RAIL RIFLE', fireMode: 'semi', fireRate: 0.8, burstCount: 1, burstRate: 0, magazine: 5, reserve: 25,
+        reloadTime: 2.6, damage: 260, pellets: 1, pierce: 6, range: 500, falloff: [500, 500], minDamage: 1,
+        hipSpread: 0.6, adsSpread: 0, spreadPerShot: 0, spreadRecovery: 4,
+        adsFov: 28, eyeRelief: 0.22, recoil: { pitch: 4.5, yaw: 0.6, shake: 0.03, kickBack: 0.09, kickUp: 7 },
+        price: 1250, ammoPrice: 625,
+      },
+    },
+    stationReach: 2.4, // meters from a weapon station you can buy from it
     lostSightTime: 6, // seconds a drone can go without seeing you before it comes hunting for you
     huntSpeed: 1.35, // how much faster than normal a hunting drone flies
     huntTimeout: 10, // seconds of hunting without finding you before it's sent back to a spawn point

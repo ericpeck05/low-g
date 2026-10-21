@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { patchFresnelGlass } from '../core/materialPatches';
 import { seededRandom } from '../world/noise';
+import { type GunModel, SUPPORT_GRIP } from './gunModel';
 
 // The rifle, built in code from extruded side profiles (so the silhouette and
 // bevelled edges look machined, not boxy) plus turned parts for the barrel.
@@ -8,19 +9,6 @@ import { seededRandom } from '../world/noise';
 // Gun space: x = right, y = up, -z = forward (toward the muzzle), meters.
 // The origin sits at the trigger. The bore runs along y = 0.03.
 
-export interface RifleModel {
-  root: THREE.Group;
-  bolt: THREE.Object3D; // slides back in the ejection port on every shot
-  magazine: THREE.Group; // comes out during a reload
-  chargingHandle: THREE.Object3D;
-  flash: THREE.Group;
-  setAmmoDisplay(ammo: number, capacity: number, reloading: boolean): void;
-  /** Where the amber dot of the sight is: lining this up with the eye is "aiming down sights". */
-  sightDot: THREE.Vector3;
-  muzzle: THREE.Vector3;
-  ejectionPort: THREE.Vector3;
-  magazineWell: THREE.Vector3; // the magazine's attach point
-}
 
 export const RIFLE_MATERIALS = makeMaterials();
 
@@ -46,7 +34,7 @@ function makeMaterials() {
 }
 
 // A side profile (forward, up) pairs, extruded sideways to `width`, with bevelled edges.
-function profile(points: [number, number][], width: number, bevel = 0.0025) {
+export function profile(points: [number, number][], width: number, bevel = 0.0025) {
   const shape = new THREE.Shape(points.map(([f, y]) => new THREE.Vector2(f, y)));
   const depth = Math.max(0.0005, width - bevel * 2);
   const geometry = new THREE.ExtrudeGeometry(shape, {
@@ -64,7 +52,7 @@ function profile(points: [number, number][], width: number, bevel = 0.0025) {
   return geometry;
 }
 
-function mesh(geometry: THREE.BufferGeometry, material: THREE.Material, parent: THREE.Object3D) {
+export function mesh(geometry: THREE.BufferGeometry, material: THREE.Material, parent: THREE.Object3D) {
   const m = new THREE.Mesh(geometry, material);
   m.castShadow = true;
   m.receiveShadow = true;
@@ -73,20 +61,20 @@ function mesh(geometry: THREE.BufferGeometry, material: THREE.Material, parent: 
 }
 
 /** A cylinder running along the barrel axis between two forward distances. */
-function tube(parent: THREE.Object3D, radius: number, from: number, to: number, y: number, material: THREE.Material, sides = 24) {
+export function tube(parent: THREE.Object3D, radius: number, from: number, to: number, y: number, material: THREE.Material, sides = 24) {
   const m = mesh(new THREE.CylinderGeometry(radius, radius, to - from, sides), material, parent);
   m.rotation.x = Math.PI / 2;
   m.position.set(0, y, -(from + to) / 2);
   return m;
 }
 
-function box(parent: THREE.Object3D, size: [number, number, number], at: [number, number, number], material: THREE.Material) {
+export function box(parent: THREE.Object3D, size: [number, number, number], at: [number, number, number], material: THREE.Material) {
   const m = mesh(new THREE.BoxGeometry(...size), material, parent);
   m.position.set(...at);
   return m;
 }
 
-export function buildRifle(): RifleModel {
+export function buildRifle(): GunModel {
   const M = RIFLE_MATERIALS;
   const root = new THREE.Group();
   const BORE = 0.03;
@@ -105,38 +93,7 @@ export function buildRifle(): RifleModel {
   // Flared magwell lip.
   mesh(profile([[0.03, -0.074], [0.114, -0.074], [0.116, -0.088], [0.028, -0.088]], 0.054, 0.002), M.receiver, root);
 
-  // Trigger guard: a loop under the trigger.
-  const guardShape = new THREE.Shape([new THREE.Vector2(-0.05, -0.04), new THREE.Vector2(0.03, -0.04), new THREE.Vector2(0.03, -0.076), new THREE.Vector2(-0.05, -0.076)]);
-  guardShape.holes.push(new THREE.Path([new THREE.Vector2(-0.044, -0.042), new THREE.Vector2(0.024, -0.042), new THREE.Vector2(0.024, -0.07), new THREE.Vector2(-0.044, -0.07)].reverse()));
-  const guard = new THREE.ExtrudeGeometry(guardShape, { depth: 0.012, bevelEnabled: true, bevelThickness: 0.001, bevelSize: 0.001, bevelSegments: 1 });
-  guard.rotateY(Math.PI / 2);
-  guard.translate(-0.006, 0, 0);
-  mesh(guard, M.receiver, root);
-  // Trigger blade.
-  const trigger = new THREE.Shape();
-  trigger.moveTo(0.004, -0.04);
-  trigger.quadraticCurveTo(0.012, -0.055, 0.004, -0.066);
-  trigger.lineTo(-0.002, -0.064);
-  trigger.quadraticCurveTo(0.004, -0.054, -0.003, -0.04);
-  const triggerGeometry = new THREE.ExtrudeGeometry(trigger, { depth: 0.006, bevelEnabled: false });
-  triggerGeometry.rotateY(Math.PI / 2);
-  triggerGeometry.translate(-0.003, 0, 0);
-  mesh(triggerGeometry, M.steel, root);
-
-  // Pistol grip, raked back, with finger grooves on the front edge.
-  const grip = new THREE.Shape();
-  grip.moveTo(-0.018, -0.036);
-  grip.quadraticCurveTo(-0.034, -0.06, -0.03, -0.075);
-  grip.quadraticCurveTo(-0.04, -0.09, -0.04, -0.1);
-  grip.quadraticCurveTo(-0.05, -0.115, -0.048, -0.128);
-  grip.lineTo(-0.058, -0.146);
-  grip.lineTo(-0.108, -0.142);
-  grip.quadraticCurveTo(-0.104, -0.1, -0.078, -0.036);
-  const gripGeometry = new THREE.ExtrudeGeometry(grip, { depth: 0.026, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 3, curveSegments: 8 });
-  gripGeometry.rotateY(Math.PI / 2);
-  gripGeometry.translate(-0.013, 0, 0);
-  gripGeometry.computeVertexNormals();
-  mesh(gripGeometry, M.polymer, root);
+  addGripAndTrigger(root);
 
   // Handguard: an eight-sided tube in white thermal coating, with dark M-LOK slots.
   const handguard = tube(root, 0.033, 0.14, 0.43, BORE, M.thermal, 8);
@@ -210,6 +167,79 @@ export function buildRifle(): RifleModel {
   magazine.position.copy(magazineWell);
   root.add(magazine);
 
+  const sightDot = addHoloSight(root);
+
+  // Folded backup iron sights at each end of the rail.
+  box(root, [0.02, 0.008, 0.02], [0, 0.072, 0.1], M.receiver);
+  box(root, [0.016, 0.008, 0.016], [0, 0.072, -0.4], M.receiver);
+
+  const flash = buildMuzzleFlash();
+  const muzzle = new THREE.Vector3(0, BORE, -0.595);
+  flash.position.copy(muzzle);
+  root.add(flash);
+
+  return {
+    root,
+    flash,
+    flashSize: 1,
+    magazine,
+    magazineWell,
+    sight: sightDot,
+    muzzle,
+    ejectionPort: new THREE.Vector3(0.03, 0.035, 0),
+    support: SUPPORT_GRIP.clone(),
+    action: { part: bolt, travel: 0.04, delay: 0, carriesHand: false },
+    hipOffset: new THREE.Vector3(),
+    glow: null,
+    setAmmoDisplay: display.set,
+    moving: [bolt, magazine, chargingHandle, flash],
+  };
+}
+
+/** The pistol grip, trigger and trigger guard every gun shares, around the origin (the trigger). */
+export function addGripAndTrigger(root: THREE.Object3D) {
+  const M = RIFLE_MATERIALS;
+  // Trigger guard: a loop under the trigger.
+  const guardShape = new THREE.Shape([new THREE.Vector2(-0.05, -0.04), new THREE.Vector2(0.03, -0.04), new THREE.Vector2(0.03, -0.076), new THREE.Vector2(-0.05, -0.076)]);
+  guardShape.holes.push(new THREE.Path([new THREE.Vector2(-0.044, -0.042), new THREE.Vector2(0.024, -0.042), new THREE.Vector2(0.024, -0.07), new THREE.Vector2(-0.044, -0.07)].reverse()));
+  const guard = new THREE.ExtrudeGeometry(guardShape, { depth: 0.012, bevelEnabled: true, bevelThickness: 0.001, bevelSize: 0.001, bevelSegments: 1 });
+  guard.rotateY(Math.PI / 2);
+  guard.translate(-0.006, 0, 0);
+  mesh(guard, M.receiver, root);
+  // Trigger blade.
+  const trigger = new THREE.Shape();
+  trigger.moveTo(0.004, -0.04);
+  trigger.quadraticCurveTo(0.012, -0.055, 0.004, -0.066);
+  trigger.lineTo(-0.002, -0.064);
+  trigger.quadraticCurveTo(0.004, -0.054, -0.003, -0.04);
+  const triggerGeometry = new THREE.ExtrudeGeometry(trigger, { depth: 0.006, bevelEnabled: false });
+  triggerGeometry.rotateY(Math.PI / 2);
+  triggerGeometry.translate(-0.003, 0, 0);
+  mesh(triggerGeometry, M.steel, root);
+
+  // Pistol grip, raked back, with finger grooves on the front edge.
+  const grip = new THREE.Shape();
+  grip.moveTo(-0.018, -0.036);
+  grip.quadraticCurveTo(-0.034, -0.06, -0.03, -0.075);
+  grip.quadraticCurveTo(-0.04, -0.09, -0.04, -0.1);
+  grip.quadraticCurveTo(-0.05, -0.115, -0.048, -0.128);
+  grip.lineTo(-0.058, -0.146);
+  grip.lineTo(-0.108, -0.142);
+  grip.quadraticCurveTo(-0.104, -0.1, -0.078, -0.036);
+  const gripGeometry = new THREE.ExtrudeGeometry(grip, { depth: 0.026, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 3, curveSegments: 8 });
+  gripGeometry.rotateY(Math.PI / 2);
+  gripGeometry.translate(-0.013, 0, 0);
+  gripGeometry.computeVertexNormals();
+  mesh(gripGeometry, M.polymer, root);
+}
+
+/**
+ * A holographic sight on a mount, sitting on a rail at y = 0.071: a hooded housing with a
+ * window, two panes of glass and a glowing reticle. Returns where the reticle's dot is.
+ * `forward` slides the whole sight along the gun.
+ */
+export function addHoloSight(root: THREE.Object3D, forward = 0) {
+  const M = RIFLE_MATERIALS;
   // Holographic sight: a mount, a hooded housing with a window, glass, and the reticle.
   const sight = new THREE.Group();
   box(sight, [0.03, 0.012, 0.075], [0, 0.077, -0.02], M.receiver);
@@ -247,29 +277,10 @@ export function buildRifle(): RifleModel {
   box(sight, [0.004, 0.006, 0.007], [0.027, 0.095, -0.036], M.rubber);
   box(sight, [0.004, 0.006, 0.007], [0.027, 0.095, -0.026], M.rubber);
   box(sight, [0.002, 0.003, 0.003], [-0.0265, 0.095, -0.03], M.amber);
+  sight.position.z = -forward;
   root.add(sight);
+  return sightDot.clone().setZ(sightDot.z - forward);
 
-  // Folded backup iron sights at each end of the rail.
-  box(root, [0.02, 0.008, 0.02], [0, 0.072, 0.1], M.receiver);
-  box(root, [0.016, 0.008, 0.016], [0, 0.072, -0.4], M.receiver);
-
-  const flash = buildMuzzleFlash();
-  const muzzle = new THREE.Vector3(0, BORE, -0.595);
-  flash.position.copy(muzzle);
-  root.add(flash);
-
-  return {
-    root,
-    bolt,
-    magazine,
-    chargingHandle,
-    flash,
-    setAmmoDisplay: display.set,
-    sightDot,
-    muzzle,
-    ejectionPort: new THREE.Vector3(0.03, 0.035, 0),
-    magazineWell,
-  };
 }
 
 /** A magazine on its own (also used for the dropped ones). Its origin is at the top, where it locks in. */
@@ -301,10 +312,10 @@ export function buildMagazine() {
 
 // In vacuum there's no air for leftover powder gases to burn in, so the flash is
 // small and short: a hot white core and a few sparks, no big fireball.
-function buildMuzzleFlash() {
+export function buildMuzzleFlash(color = 0xffd9a0) {
   const material = new THREE.MeshBasicMaterial({
     map: glowTexture(),
-    color: 0xffd9a0,
+    color,
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,

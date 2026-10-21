@@ -281,6 +281,110 @@ export function hitTick(c: BaseAudioContext, bullseye: boolean) {
   }, bullseye ? 0.45 : 0.35);
 }
 
+// ---- Drone Siege weapons ----
+
+/** The P-9 sidearm: a sharp, light crack and the slide snapping back. */
+export function pistolShot(c: BaseAudioContext, seed: number) {
+  return make(c, 0.45, 2000 + seed, (out, rate, random) => {
+    add(out, rate, filter(noise(seconds(0.06, rate), random), rate, 'highpass', 2200), 0, 1, 0.004);
+    add(out, rate, filter(noise(seconds(0.3, rate), random), rate, 'lowpass', 1500), 0, 1.0, 0.035);
+    thump(out, rate, 0, 190, 60, 0.06, 0.9);
+    ping(out, rate, 0.03 + random() * 0.006, [2400 + random() * 300, 3800], 0.01, 0.15);
+  });
+}
+
+/** The plasma SMG: a bright electric snap with a crackle (higher than the drones' shots). */
+export function smgShot(c: BaseAudioContext, seed: number) {
+  return make(c, 0.25, 2100 + seed, (out, rate, random) => {
+    add(out, rate, filter(zap(rate, 0.14, 2800 + random() * 400, 700, 0.025), rate, 'lowpass', 6500), 0, 0.7, 0.04);
+    add(out, rate, filter(noise(seconds(0.05, rate), random), rate, 'highpass', 3500), 0, 0.5, 0.012);
+    thump(out, rate, 0, 230, 90, 0.025, 0.6);
+  }, 0.75);
+}
+
+/** The Scatter Cannon: a huge blast, then the pump worked back and forward. */
+export function scatterShot(c: BaseAudioContext, seed: number) {
+  return make(c, 1.0, 2200 + seed, (out, rate, random) => {
+    add(out, rate, filter(noise(seconds(0.08, rate), random), rate, 'highpass', 1500), 0, 0.9, 0.006);
+    add(out, rate, filter(filter(noise(seconds(0.7, rate), random), rate, 'lowpass', 900), rate, 'lowpass', 700), 0, 1.5, 0.12);
+    thump(out, rate, 0, 115, 32, 0.16, 1.4);
+    for (const at of [0.3, 0.42]) {
+      add(out, rate, filter(noise(seconds(0.03, rate), random), rate, 'bandpass', 1800, 1.5), at, 0.35, 0.01);
+      ping(out, rate, at, [1300 + random() * 200, 2600], 0.015, 0.25);
+    }
+  });
+}
+
+/** The Burst Carbine: a tight, punchy crack (it comes three at a time). */
+export function carbineShot(c: BaseAudioContext, seed: number) {
+  return make(c, 0.5, 2300 + seed, (out, rate, random) => {
+    add(out, rate, filter(noise(seconds(0.08, rate), random), rate, 'highpass', 2000), 0, 1, 0.005);
+    add(out, rate, filter(noise(seconds(0.4, rate), random), rate, 'lowpass', 1300), 0, 1.2, 0.04);
+    thump(out, rate, 0, 150, 48, 0.07, 1.0);
+    ping(out, rate, 0.03, [2000 + random() * 200, 3300], 0.01, 0.15);
+  });
+}
+
+/** The Rail Rifle: a split-second charge whine, a cracking boom, and the rails ringing. */
+export function railShot(c: BaseAudioContext, seed: number) {
+  return make(c, 1.5, 2400 + seed, (out, rate, random) => {
+    let phase = 0;
+    for (let i = 0; i < seconds(0.12, rate); i++) {
+      const t = i / rate;
+      phase += (400 + 2600 * (t / 0.12) ** 2) / rate;
+      out[i] += Math.sin(2 * Math.PI * phase) * 0.25 * (t / 0.12);
+    }
+    const at = 0.12;
+    add(out, rate, filter(noise(seconds(0.1, rate), random), rate, 'highpass', 1000), at, 1.3, 0.02);
+    thump(out, rate, at, 85, 25, 0.25, 1.4);
+    ping(out, rate, at, [3100, 4700, 6200], 0.12, 0.35);
+    add(out, rate, filter(zap(rate, 0.6, 5000, 200, 0.18), rate, 'lowpass', 5000), at, 0.4, 0.2);
+  });
+}
+
+/** Pulling the trigger on an empty gun with nothing to reload. */
+export function dryFire(c: BaseAudioContext) {
+  return make(c, 0.08, 2500, (out, rate, random) => {
+    ping(out, rate, 0, [2600, 4100], 0.004, 0.6);
+    add(out, rate, filter(noise(seconds(0.02, rate), random), rate, 'highpass', 3000), 0, 0.3, 0.004);
+  }, 0.5);
+}
+
+/** Switching weapons: a rustle of the suit and a click as the next one comes up. */
+export function weaponSwap(c: BaseAudioContext) {
+  return make(c, 0.4, 2600, (out, rate, random) => {
+    add(out, rate, filter(noise(seconds(0.2, rate), random), rate, 'bandpass', 900, 0.7), 0, 0.5, 0.06, 0.04);
+    ping(out, rate, 0.22, [1900, 3100], 0.008, 0.4);
+  }, 0.5);
+}
+
+/** Buying from a station: a heavy latch and a rising two-note chime. */
+export function purchase(c: BaseAudioContext) {
+  return make(c, 0.9, 2700, (out, rate) => {
+    thump(out, rate, 0, 140, 60, 0.05, 0.8);
+    ping(out, rate, 0, [900, 1500], 0.02, 0.4);
+    for (const [start, freq] of [[0.12, 880], [0.26, 1320]]) {
+      const begin = seconds(start, rate);
+      for (let i = 0; i < seconds(0.35, rate); i++) {
+        const t = i / rate;
+        const tri = (2 / Math.PI) * Math.asin(Math.sin(2 * Math.PI * freq * t));
+        out[begin + i] += tri * 0.4 * Math.min(1, t / 0.005) * Math.exp(-t / 0.12);
+      }
+    }
+  }, 0.6);
+}
+
+/** Can't afford it: a short low buzz. */
+export function denied(c: BaseAudioContext) {
+  return make(c, 0.3, 2800, (out, rate) => {
+    for (let i = 0; i < seconds(0.25, rate); i++) {
+      const t = i / rate;
+      const square = Math.sign(Math.sin(2 * Math.PI * 140 * t));
+      out[i] += square * 0.5 * Math.min(1, t / 0.005) * Math.min(1, (0.25 - t) / 0.02);
+    }
+  }, 0.4);
+}
+
 // ---- Drone Siege ----
 
 /** A falling electric zap: a buzzy tone that drops from `from` to `to` Hz. */

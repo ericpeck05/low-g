@@ -3,8 +3,8 @@ import * as THREE from 'three';
 import { CONFIG } from '../config';
 import { buildMagazine } from './rifleModel';
 
-// Things the rifle throws out into the world: spent brass casings on every shot
-// and empty magazines on a reload. They fly in slow arcs under moon gravity with
+// Things guns throw out into the world: spent casings on every shot (the energy
+// weapons have none) and empty magazines on a reload. They fly in slow arcs under moon gravity with
 // no air to slow them, bounce off whatever is below, and lie there for a while.
 
 interface Piece {
@@ -19,6 +19,7 @@ interface Piece {
   age: number;
   life: number;
   resting: boolean;
+  scale: number;
 }
 
 /** A casing or magazine hitting something, for its sound. */
@@ -36,9 +37,9 @@ export class Ejecta {
   private casings: Piece[] = [];
   private magazines: Piece[] = [];
   private casingMesh: THREE.InstancedMesh;
-  // Every dropped magazine is a copy of this one (they share its shape and materials).
-  // It sits in the scene hidden, so its shaders get compiled at load with everything else.
-  private magazineTemplate = buildMagazine();
+  // Every dropped magazine is a copy of its gun's template (sharing shape and materials).
+  // The templates sit in the scene hidden, so their shaders get compiled at load.
+  private magazineTemplates = new Map<string, THREE.Object3D>();
   private ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
   private bounces: BounceEvent[] = [];
 
@@ -52,22 +53,35 @@ export class Ejecta {
     this.casingMesh.castShadow = true;
     this.casingMesh.frustumCulled = false;
     scene.add(this.casingMesh);
-    this.magazineTemplate.visible = false;
-    scene.add(this.magazineTemplate);
+    this.addMagazineTemplate('rifle', buildMagazine());
   }
 
-  casing(position: THREE.Vector3, velocity: THREE.Vector3) {
+  /** A gun's magazine, to copy when one of that gun's empties is dropped. */
+  addMagazineTemplate(weapon: string, magazine: THREE.Object3D) {
+    const template = magazine.clone();
+    template.position.set(0, 0, 0);
+    template.rotation.set(0, 0, 0);
+    template.visible = false;
+    this.magazineTemplates.set(weapon, template);
+    this.scene.add(template);
+  }
+
+  /** scale: casing size (a shotgun shell is bigger than a rifle case). */
+  casing(position: THREE.Vector3, velocity: THREE.Vector3, scale = 1) {
     if (this.casings.length >= MAX_CASINGS) this.casings.shift();
-    this.casings.push(this.makePiece(null, position, velocity, 0.005, 8, new THREE.Vector3(rand(25), rand(40), rand(25))));
+    const piece = this.makePiece(null, position, velocity, 0.005 * scale, 8, new THREE.Vector3(rand(25), rand(40), rand(25)));
+    piece.scale = scale;
+    this.casings.push(piece);
   }
 
   /** `matrix` is the magazine's world transform at the moment it comes out of the gun. */
-  magazine(matrix: THREE.Matrix4, velocity: THREE.Vector3) {
+  magazine(matrix: THREE.Matrix4, velocity: THREE.Vector3, weapon = 'rifle') {
+    const template = this.magazineTemplates.get(weapon) ?? this.magazineTemplates.get('rifle')!;
     if (this.magazines.length >= MAX_MAGAZINES) {
       const old = this.magazines.shift()!;
       this.scene.remove(old.object!);
     }
-    const mag = this.magazineTemplate.clone();
+    const mag = template.clone();
     mag.visible = true;
     this.scene.add(mag);
     const position = new THREE.Vector3();
@@ -100,7 +114,7 @@ export class Ejecta {
       }
     }
     this.casings.forEach((p, i) => {
-      matrix.compose(p.position, p.rotation, new THREE.Vector3(1, 1, 1).multiplyScalar(Math.min(1, (p.life - p.age) / 0.6)));
+      matrix.compose(p.position, p.rotation, new THREE.Vector3(1, 1, 1).multiplyScalar(p.scale * Math.min(1, (p.life - p.age) / 0.6)));
       this.casingMesh.setMatrixAt(i, matrix);
     });
     this.casingMesh.count = this.casings.length;
@@ -134,6 +148,7 @@ export class Ejecta {
       age: 0,
       life,
       resting: false,
+      scale: 1,
     };
     this.findFloor(piece);
     return piece;

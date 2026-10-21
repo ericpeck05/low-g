@@ -5,7 +5,8 @@ import { MODE_NAMES, type Mode } from '../core/session';
 import type { Oxygen } from '../player/oxygen';
 import type { Player } from '../player/player';
 import type { Scoring } from '../targets/scoring';
-import type { Rifle } from '../weapons/rifle';
+import type { Gun } from '../weapons/gun';
+import { fireModeLabel } from '../weapons/weaponSpec';
 import './theme.css';
 import './hud.css';
 
@@ -13,7 +14,7 @@ import './hud.css';
 export interface HudState {
   dt: number;
   player: Player;
-  rifle: Rifle;
+  gun: Gun; // the gun in hand
   scoring: Scoring;
   oxygen: Oxygen;
   inside: boolean; // breathing dome air
@@ -27,8 +28,18 @@ export interface HudState {
   mouse: { x: number; y: number };
   showStats: boolean;
   frameTime: number; // seconds the last frame really took (dt is capped, this isn't)
-  dronesDestroyed: number | null; // Drone Siege: shown instead of the score (until it has points)
+  siege: SiegeReadout | null; // Drone Siege's points, weapon slots and buy prompt
   render: { calls: number; triangles: number; width: number; height: number; quality: string };
+}
+
+/** Drone Siege's extra readouts. */
+export interface SiegeReadout {
+  points: number;
+  kills: number;
+  slots: (Gun | null)[];
+  slot: number; // which one is in hand
+  /** Near a weapon station: what it offers and whether you can afford it. */
+  prompt: { text: string; price: number; affordable: boolean } | null;
 }
 
 const COMPASS_PX_PER_DEGREE = 3;
@@ -46,7 +57,7 @@ export class Hud {
   private toastTimer = 0;
   private hitmarkerTime = 0;
   private swayOffset = new THREE.Vector2();
-  private shown = { ammo: -1, oxygen: -1, fuel: -1 };
+  private shown = { ammo: -1, reserve: -1, oxygen: -1, fuel: -1, weapon: '', slots: '', prompt: '' };
   private frameTimes: number[] = [];
 
   constructor() {
@@ -88,11 +99,12 @@ export class Hud {
             <div class="sub accuracy"></div>
           </div>
           <div class="panel cut ammo">
-            <div class="row"><span class="label">RIFLE &middot; AUTO</span></div>
+            <div class="row"><span class="label weapon">RIFLE &middot; AUTO</span></div>
             <div class="value rounds">30 <small>/ 30</small></div>
             <div class="pips"></div>
             <div class="state"></div>
             <div class="reload"><div></div></div>
+            <div class="slots"></div>
           </div>
         </div>
       </div>
@@ -103,6 +115,7 @@ export class Hud {
       <div class="hitmarker"><div></div><div></div><div></div><div></div></div>
       <div class="popups"></div>
       <div class="warning">LOW OXYGEN</div>
+      <div class="prompt"></div>
       <div class="toast"></div>
       <div class="stats"></div>`;
     document.body.appendChild(this.root);
@@ -112,7 +125,7 @@ export class Hud {
       'status:.status', 'where:.where', 'pressure:.pressure',
       'oxygen:.oxygen', 'o2:.o2', 'o2sub:.o2sub', 'fuel:.fuel', 'fuelpct:.fuelpct',
       'scoreLabel:.score-label', 'points:.points', 'combo:.combo', 'meter:.meter div', 'accuracy:.accuracy',
-      'ammo:.ammo', 'rounds:.rounds', 'pips:.pips', 'state:.state', 'reload:.reload div',
+      'ammo:.ammo', 'weapon:.ammo .weapon', 'rounds:.rounds', 'pips:.pips', 'state:.state', 'reload:.reload div', 'slots:.slots', 'prompt:.prompt',
       'crosshair:.crosshair', 'l:.crosshair .l', 'r:.crosshair .r', 't:.crosshair .t', 'b:.crosshair .b',
       'hitmarker:.hitmarker', 'popups:.popups', 'warning:.warning', 'toast:.toast', 'hypoxia:.hypoxia', 'stats:.stats',
     ];
@@ -150,6 +163,12 @@ export class Hud {
   flashHitmarker(strong: boolean) {
     this.hitmarkerTime = 0.18;
     this.el.hitmarker.classList.toggle('bullseye', strong);
+  }
+
+  /** Points earned, floating up from the crosshair. strong: a kill. */
+  showPoints(points: number, label: string, strong: boolean) {
+    if (points <= 0) return;
+    this.showCallout(`+${points}${label ? ` ${label}` : ''}`, strong);
   }
 
   /** Float a short message above the crosshair, like the points popups. */
@@ -212,7 +231,7 @@ export class Hud {
     this.el.t.style.top = `${-gap - 10}px`;
     this.el.b.style.top = `${gap}px`;
     // Aiming down sights uses the gun's own reticle instead; sprinting hides it too.
-    const hidden = Math.max(s.rifle.aimBlend * 1.5, s.player.sprinting ? 1 : 0);
+    const hidden = Math.max(s.gun.aimBlend * 1.5, s.player.sprinting ? 1 : 0);
     this.el.crosshair.style.opacity = String(Math.max(0, 1 - hidden));
     this.hitmarkerTime = Math.max(0, this.hitmarkerTime - s.dt);
     this.el.hitmarker.style.opacity = String(Math.min(1, this.hitmarkerTime / 0.08));
@@ -278,9 +297,9 @@ export class Hud {
 
   private updateScore(s: HudState) {
     const { scoring } = s;
-    const siege = s.dronesDestroyed !== null;
-    this.el.scoreLabel.textContent = siege ? 'DRONES DESTROYED' : 'SCORE';
-    this.el.points.textContent = siege ? String(s.dronesDestroyed) : scoring.score.toLocaleString('en-US');
+    const siege = s.siege !== null;
+    this.el.scoreLabel.textContent = siege ? 'POINTS' : 'SCORE';
+    this.el.points.textContent = (siege ? s.siege!.points : scoring.score).toLocaleString('en-US');
     this.el.combo.textContent = !siege && scoring.combo > 1 ? `COMBO ${scoring.combo} · x${scoring.multiplier}` : '';
     this.el.meter.parentElement!.style.visibility = siege ? 'hidden' : 'visible';
     // Progress toward the next multiplier step.
@@ -288,21 +307,55 @@ export class Hud {
     const progress = scoring.multiplier >= maxMultiplier ? 1 : (scoring.combo % comboStep) / comboStep;
     this.el.meter.style.width = `${(progress * 100).toFixed(0)}%`;
     const accuracy = scoring.accuracy;
-    this.el.accuracy.textContent = `ACCURACY ${accuracy === null ? '-' : `${accuracy.toFixed(0)}%`} · HITS ${scoring.shotsHit}`;
+    const accuracyText = `ACCURACY ${accuracy === null ? '-' : `${accuracy.toFixed(0)}%`}`;
+    this.el.accuracy.textContent = siege ? `DRONES ${s.siege!.kills} · ${accuracyText}` : `${accuracyText} · HITS ${scoring.shotsHit}`;
   }
 
   private updateAmmo(s: HudState) {
-    const { rifle } = s;
-    if (rifle.ammo !== this.shown.ammo) {
-      this.shown.ammo = rifle.ammo;
-      this.el.rounds.innerHTML = `${rifle.ammo} <small>/ ${CONFIG.rifle.magazineSize}</small>`;
-      this.pips.forEach((pip, i) => pip.classList.toggle('spent', i >= rifle.ammo));
+    const gun = s.gun;
+    const spec = gun.spec;
+    // A different gun in hand: new name, and pips for its magazine size.
+    if (spec.id !== this.shown.weapon) {
+      this.shown.weapon = spec.id;
+      this.el.weapon.textContent = `${spec.name} · ${fireModeLabel(spec)}`;
+      this.buildPips(spec.magazine);
+      this.shown.ammo = -1;
     }
-    const capacity = CONFIG.rifle.magazineSize;
-    this.el.ammo.classList.toggle('empty', rifle.ammo === 0);
-    this.el.ammo.classList.toggle('low', rifle.ammo > 0 && rifle.ammo <= capacity / 4);
-    this.el.state.textContent = rifle.reloading ? 'RELOADING' : rifle.ammo === 0 ? 'EMPTY · PRESS R' : '';
-    this.el.reload.style.width = rifle.reloading ? `${(rifle.reloadProgress * 100).toFixed(0)}%` : '0';
+    if (gun.ammo !== this.shown.ammo || gun.reserve !== this.shown.reserve) {
+      this.shown.ammo = gun.ammo;
+      this.shown.reserve = gun.reserve;
+      // Spare ammo after the slash; the range rifle never runs out, so it shows the magazine.
+      const after = Number.isFinite(gun.reserve) ? gun.reserve : spec.magazine;
+      this.el.rounds.innerHTML = `${gun.ammo} <small>/ ${after}</small>`;
+      this.pips.forEach((pip, i) => pip.classList.toggle('spent', i >= gun.ammo));
+    }
+    const empty = gun.ammo === 0;
+    this.el.ammo.classList.toggle('empty', empty);
+    this.el.ammo.classList.toggle('low', gun.ammo > 0 && gun.ammo <= spec.magazine / 4);
+    this.el.state.textContent = gun.reloading ? 'RELOADING' : empty ? (gun.reserve > 0 ? 'EMPTY · PRESS R' : 'OUT OF AMMO') : '';
+    this.el.reload.style.width = gun.reloading ? `${(gun.reloadProgress * 100).toFixed(0)}%` : '0';
+    this.updateSiege(s);
+  }
+
+  // Drone Siege: the two weapon slots, and what's for sale at the station you're facing.
+  private updateSiege(s: HudState) {
+    const siege = s.siege;
+    const slots = siege
+      ? siege.slots.map((gun, i) => `<span class="${i === siege.slot ? 'on' : ''}">${i + 1} ${gun ? gun.spec.name : '—'}</span>`).join('')
+      : '';
+    if (slots !== this.shown.slots) {
+      this.shown.slots = slots;
+      this.el.slots.innerHTML = slots;
+    }
+    const prompt = siege?.prompt;
+    const html = prompt
+      ? `PRESS E · ${prompt.text} · <span class="${prompt.affordable ? 'price' : 'price short'}">${prompt.price}</span>`
+      : '';
+    if (html !== this.shown.prompt) {
+      this.shown.prompt = html;
+      this.el.prompt.innerHTML = html;
+      this.el.prompt.style.display = html ? 'block' : 'none';
+    }
   }
 
   private updateStats(s: HudState) {
@@ -335,6 +388,7 @@ export class Hud {
 
   private buildPips(count: number) {
     this.el.pips.innerHTML = '<i></i>'.repeat(count);
+    this.el.pips.classList.toggle('wide', count <= 12); // a few big rounds read better as wide pips
     this.pips = [...this.el.pips.querySelectorAll<HTMLElement>('i')];
   }
 

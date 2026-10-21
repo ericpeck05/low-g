@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import { AudioEngine, type Bus } from './engine';
+import type { WeaponId } from '../weapons/weaponSpec';
 import * as synth from './synth';
 
 // Every sound in the game, in one place. main.ts calls the event methods
@@ -52,8 +53,34 @@ export class GameAudio {
 
   // ---- One-off sounds ----
 
-  gunshot() {
-    this.play(this.pick(this.sounds.gunshots), 'body', { gain: 0.55, rate: 0.96 + Math.random() * 0.08 });
+  /** A shot from whichever gun you're holding. Felt through the suit, so it carries in vacuum. */
+  gunshot(weapon: WeaponId = 'rifle') {
+    const [list, gain] = {
+      rifle: [this.sounds.gunshots, 0.55],
+      sidearm: [this.sounds.pistolShots, 0.5],
+      smg: [this.sounds.smgShots, 0.42],
+      scatter: [this.sounds.scatterShots, 0.6],
+      carbine: [this.sounds.carbineShots, 0.5],
+      rail: [this.sounds.railShots, 0.65],
+    }[weapon] as [AudioBuffer[], number];
+    this.play(this.pick(list), 'body', { gain, rate: 0.96 + Math.random() * 0.08 });
+  }
+
+  dryFire() {
+    this.play(this.sounds.dryFire, 'body', { gain: 0.6 });
+  }
+
+  weaponSwap() {
+    this.play(this.sounds.weaponSwap, 'body', { gain: 0.6 });
+  }
+
+  /** Bought something at a station: heard in the helmet, like the other menu-ish sounds. */
+  purchase() {
+    this.play(this.sounds.purchase, 'suit', { gain: 0.6 });
+  }
+
+  denied() {
+    this.play(this.sounds.denied, 'suit', { gain: 0.4 });
   }
 
   magazineRelease() {
@@ -349,6 +376,15 @@ function buildSounds(c: BaseAudioContext) {
     droneExplosions: range(2).map((i) => synth.droneExplosion(c, i)),
     suitAlarm: synth.suitAlarm(c),
     roundStart: synth.roundStart(c),
+    pistolShots: range(3).map((i) => synth.pistolShot(c, i)),
+    smgShots: range(3).map((i) => synth.smgShot(c, i)),
+    scatterShots: range(2).map((i) => synth.scatterShot(c, i)),
+    carbineShots: range(3).map((i) => synth.carbineShot(c, i)),
+    railShots: range(2).map((i) => synth.railShot(c, i)),
+    dryFire: synth.dryFire(c),
+    weaponSwap: synth.weaponSwap(c),
+    purchase: synth.purchase(c),
+    denied: synth.denied(c),
     roundEnd: synth.roundEnd(c),
     spawnWarning: synth.spawnWarning(c),
   };

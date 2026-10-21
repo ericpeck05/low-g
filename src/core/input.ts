@@ -6,6 +6,7 @@ export class Input {
   private pressedThisFrame = new Set<string>();
   private mouseDX = 0;
   private mouseDY = 0;
+  private wheel = 0; // scroll steps since the last frame (+ down, - up)
   locked = false;
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -34,6 +35,12 @@ export class Input {
     document.addEventListener('mouseup', (e) => this.held.delete(`Mouse${e.button}`));
     // Right click is for aiming, so don't open the browser's menu.
     document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // The scroll wheel switches weapons (only while playing, so menus still scroll).
+    document.addEventListener('wheel', (e) => {
+      if (!this.locked || e.deltaY === 0) return;
+      this.wheel += Math.sign(e.deltaY);
+    });
 
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
@@ -67,6 +74,13 @@ export class Input {
     this.mouseDX = 0;
     this.mouseDY = 0;
     return delta;
+  }
+
+  /** Scroll steps since last frame: positive is toward you (down), negative away (up). */
+  takeWheel() {
+    const steps = this.wheel;
+    this.wheel = 0;
+    return steps;
   }
 
   // Call once at the end of every frame.

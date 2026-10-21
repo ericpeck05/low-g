@@ -40,6 +40,14 @@
 .pips i { width: 4px; height: 11px; background: var(--white); }
 .pips i.spent { background: rgba(245, 240, 232, 0.14); }
 
+.pips.wide i { width: 11px; }
+
+/* Drone Siege: your two weapon slots under the ammo, the one in hand in amber. */
+.ammo .slots { display: flex; justify-content: flex-end; gap: 14px; margin-top: 9px; font-size: 10px;
+  color: var(--faint); letter-spacing: 0.12em; }
+.ammo .slots:empty { display: none; }
+.ammo .slots .on { color: var(--amber); }
+
 /* Status: where you are and what's outside your suit. */
 .status .dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; background: var(--white); }
 .status.vacuum .dot { background: var(--amber); }
@@ -98,6 +106,12 @@
   font-size: 16px; letter-spacing: 0.3em; display: none; animation: hud-blink 0.8s steps(2) infinite; }
 .toast { position: absolute; left: 50%; top: 38%; transform: translateX(-50%); transition: opacity 0.3s; opacity: 0;
   background: var(--panel); border: 1px solid var(--line); padding: 8px 14px; }
+
+/* Standing at a weapon station: what it sells and the price (orange if you can't afford it). */
+.prompt { position: absolute; left: 50%; top: 68%; transform: translateX(-50%); display: none; white-space: nowrap;
+  background: var(--panel-solid); border: 1px solid var(--amber); padding: 9px 16px; font-size: 13px; letter-spacing: 0.16em; }
+.prompt .price { color: var(--amber); }
+.prompt .price.short { color: var(--orange); }
 
 /* Edges darken and warm up as the air runs out. */
 .hypoxia { position: absolute; inset: 0; opacity: 0;

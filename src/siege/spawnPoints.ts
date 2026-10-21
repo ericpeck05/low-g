@@ -228,7 +228,7 @@ export class SpawnPoints {
 }
 
 /** The face of a tower (a prism with `sides` faces) that looks most toward the plaza. */
-function plazaFace(position: THREE.Vector3, radius: number, sides: number) {
+export function plazaFace(position: THREE.Vector3, radius: number, sides: number) {
   const toward = position.clone().setY(0).negate().normalize();
   let best = new THREE.Vector3();
   let bestDot = -Infinity;

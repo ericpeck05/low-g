@@ -11,12 +11,12 @@ export class Recoil {
   shakeYaw = 0;
   private shake = 0;
 
-  kick(aimBlend: number) {
-    const cfg = CONFIG.recoil;
-    const scale = THREE.MathUtils.lerp(1, cfg.adsScale, aimBlend);
-    this.pitch += THREE.MathUtils.degToRad(cfg.kickPitch) * scale;
-    this.yaw += THREE.MathUtils.degToRad((Math.random() * 2 - 1) * cfg.kickYaw) * scale;
-    this.shake += cfg.shakeAmount * scale;
+  /** One shot's kick. `gun` is that gun's recoil (degrees up, degrees sideways, shake). */
+  kick(aimBlend: number, gun: { pitch: number; yaw: number; shake: number }) {
+    const scale = THREE.MathUtils.lerp(1, CONFIG.recoil.adsScale, aimBlend);
+    this.pitch += THREE.MathUtils.degToRad(gun.pitch) * scale;
+    this.yaw += THREE.MathUtils.degToRad((Math.random() * 2 - 1) * gun.yaw) * scale;
+    this.shake += gun.shake * scale;
   }
 
   update(dt: number) {

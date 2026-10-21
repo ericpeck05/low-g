@@ -42,6 +42,8 @@ export interface DroneHit {
   core: boolean;
   destroyed: boolean;
   position: THREE.Vector3;
+  points: number; // earned by this hit
+  colliders: number[]; // the drone's collider handles (a piercing shot passes them by)
 }
 
 /** A drone on its way out of a spawn point. */
@@ -62,6 +64,11 @@ export class SiegeMode {
   active = false;
   kills = 0;
   coreKills = 0;
+  points = 0;
+  pointsEarned = 0; // over the whole game, for the results
+  private shot = 0; // counts trigger pulls, so one blast scores each drone it hits once
+  private scoredShot: number[] = []; // per drone: the last shot that scored on it...
+  private scoredPoints: number[] = []; // ...and how much that shot has scored on it so far
   private drones: HostileDrone[] = [];
   private byCollider = new Map<number, HostileDrone>(); // collider handle -> drone
   private arrivals: Arrival[] = [];
@@ -113,6 +120,8 @@ export class SiegeMode {
     this.setShown(true);
     this.kills = 0;
     this.coreKills = 0;
+    this.points = CONFIG.siege.points.start;
+    this.pointsEarned = 0;
     this.suit.reset();
     this.rounds.start();
   }
@@ -130,7 +139,12 @@ export class SiegeMode {
     this.setShown(false);
   }
 
-  /** If the collider is part of a hostile drone, damage it. Otherwise null. */
+  /** Call once per trigger pull, before its pellets or beam hit anything. */
+  beginShot() {
+    this.shot++;
+  }
+
+  /** If the collider is part of a hostile drone, damage it (and score it). Otherwise null. */
   tryHit(collider: RAPIER.Collider, damage: number): DroneHit | null {
     const drone = this.byCollider.get(collider.handle);
     if (!drone || !drone.active) return null;
@@ -145,7 +159,29 @@ export class SiegeMode {
       if (core) this.coreKills++;
       this.rounds.onDestroyed();
     }
-    return { core, destroyed, position };
+    // Points: a drone hit by this shot is worth `hit` once; destroying it is worth `kill`
+    // (or `coreKill`) instead. Later pellets on the same drone add only the difference.
+    const P = CONFIG.siege.points;
+    const i = drone.index;
+    const already = this.scoredShot[i] === this.shot ? this.scoredPoints[i] : 0;
+    const due = destroyed ? (core ? P.coreKill : P.kill) : P.hit;
+    const points = Math.max(0, due - already);
+    this.scoredShot[i] = this.shot;
+    this.scoredPoints[i] = Math.max(already, due);
+    this.addPoints(points);
+    return { core, destroyed, position, points, colliders: [drone.body.handle, drone.core.handle] };
+  }
+
+  addPoints(points: number) {
+    this.points += points;
+    this.pointsEarned += points;
+  }
+
+  /** Pay for something. Returns false (and charges nothing) if you can't afford it. */
+  spend(price: number) {
+    if (this.points < price) return false;
+    this.points -= price;
+    return true;
   }
 
   /** One frame of the fight. Returns what happened, for sounds and the HUD. */

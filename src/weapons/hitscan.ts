@@ -15,9 +15,10 @@ export function castShot(
   direction: THREE.Vector3,
   range: number,
   ignore: RAPIER.Collider,
+  passes?: (collider: RAPIER.Collider) => boolean, // false for colliders the shot goes through
 ): Hit | null {
   const ray = new RAPIER.Ray(origin, direction);
-  const result = world.castRayAndGetNormal(ray, range, true, undefined, undefined, ignore);
+  const result = world.castRayAndGetNormal(ray, range, true, undefined, undefined, ignore, undefined, passes);
   if (!result) return null;
 
   const point = origin.clone().addScaledVector(direction, result.timeOfImpact);
