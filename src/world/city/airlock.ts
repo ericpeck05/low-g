@@ -2,6 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { CONFIG } from '../../config';
 import { MATERIALS, lightStrip, solidBox } from './kit';
+import { signPanel } from './signs';
 
 type Side = 'inside' | 'outside';
 
@@ -125,6 +126,8 @@ export class Airlock {
     // Ceiling light running the length of the tunnel.
     lightStrip(scene, this.place(mid, 0, PASSAGE_HEIGHT - 0.05), { x: 0.3, y: 0.06, z: length - 2 }, MATERIALS.softLight, b);
 
+    this.dress(scene, world, b, start, end, bearingDegrees);
+
     const doorMaterial = new THREE.MeshStandardMaterial({ map: hazardTexture(), roughness: 0.6, metalness: 0.2 });
     const place = (u: number, v: number, y: number) => this.place(u, v, y);
     this.inner = new Door(scene, world, place, b, R - 5, doorMaterial);
@@ -144,6 +147,50 @@ export class Airlock {
       new THREE.MeshStandardMaterial({ color: 0xffa31a, emissive: 0xffa31a, emissiveIntensity: 0 }),
       b,
     );
+  }
+
+  // The gatehouse's skin: structural ribs round it, a plinth, a lit portal at each end with
+  // the airlock's name over it, and floodlights on the outer corners.
+  private dress(scene: THREE.Object3D, world: RAPIER.World, b: number, start: number, end: number, bearing: number) {
+    const R = CONFIG.city.domeRadius;
+    for (let u = start + 0.8; u < end - 0.5; u += 2.4) {
+      if (Math.abs(u - R) < 1.4) continue; // where the dome glass meets it
+      for (const side of [-1, 1]) {
+        solidBox(scene, world, this.place(u, side * (HOUSING_HALF_WIDTH + 0.12), (HOUSING_HEIGHT + 0.25) / 2), { x: 0.25, y: HOUSING_HEIGHT + 0.25, z: 0.5 }, MATERIALS.graphite, b, false);
+      }
+      solidBox(scene, world, this.place(u, 0, HOUSING_HEIGHT + 0.12), { x: HOUSING_HALF_WIDTH * 2 + 0.5, y: 0.25, z: 0.5 }, MATERIALS.graphite, b, false);
+    }
+    for (const side of [-1, 1]) {
+      solidBox(scene, world, this.place((start + end) / 2, side * (HOUSING_HALF_WIDTH + 0.1), 0.25), { x: 0.2, y: 0.5, z: end - start }, MATERIALS.graphite, b, false);
+    }
+    const name = Math.abs(((bearing % 360) + 360) % 360 - 180) < 90 ? 'Airlock N' : 'Airlock S';
+    for (const [u, facing] of [
+      [end + 0.25, 0],
+      [start - 0.25, Math.PI],
+    ]) {
+      // The frame stands 6 cm proud of the tunnel's walls and ceiling, so no faces line up.
+      const inner = PASSAGE_HALF_WIDTH - 0.06;
+      const top = PASSAGE_HEIGHT - 0.06;
+      for (const side of [-1, 1]) {
+        solidBox(scene, world, this.place(u, side * (inner + 0.47), (top + 0.96) / 2), { x: 0.94, y: top + 0.96, z: 0.5 }, MATERIALS.graphite, b);
+        lightStrip(scene, this.place(u + (facing === 0 ? 0.2 : -0.2), side * (inner - 0.01), top / 2), { x: 0.03, y: top, z: 0.06 }, MATERIALS.amberLight, b);
+      }
+      solidBox(scene, world, this.place(u, 0, top + 0.48), { x: inner * 2 + 1.9, y: 0.96, z: 0.5 }, MATERIALS.graphite, b);
+      lightStrip(scene, this.place(u + (facing === 0 ? 0.2 : -0.2), 0, top - 0.01), { x: inner * 2, y: 0.03, z: 0.06 }, MATERIALS.amberLight, b);
+      const sign = signPanel(name, 0.6, 'amber');
+      const out = facing === 0 ? 1 : -1;
+      sign.position.copy(this.place(u + out * 0.27, 0, PASSAGE_HEIGHT + 1.7));
+      sign.rotation.y = b + facing;
+      scene.add(sign);
+    }
+    // Floodlights on the outer corners, angled down at the approach.
+    for (const side of [-1, 1]) {
+      const at = this.place(end + 0.2, side * (HOUSING_HALF_WIDTH - 0.4), HOUSING_HEIGHT + 0.4);
+      const housing = solidBox(scene, world, at, { x: 0.8, y: 0.35, z: 0.5 }, MATERIALS.graphite, b, false);
+      housing.rotation.set(0.5, b, 0, 'YXZ');
+      const lamp = lightStrip(scene, at.clone().addScaledVector(this.radial, 0.2).setY(at.y - 0.1), { x: 0.65, y: 0.05, z: 0.3 }, MATERIALS.whiteLight, b);
+      lamp.rotation.set(0.5, b, 0, 'YXZ');
+    }
   }
 
   /** u = meters out from the dome center along the tunnel, v = meters sideways. */

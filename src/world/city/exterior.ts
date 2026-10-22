@@ -2,7 +2,12 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { CONFIG } from '../../config';
 import { ANTENNAS, LANDING_PAD, MODULES_CENTER, SOLAR_FIELD } from './layout';
-import { MATERIALS, type Placement, boxCollider, instanced, lightStrip, pavingTexture, solidBox, solidCylinder, solidTube } from './kit';
+import { patchTriplanar } from '../../core/materialPatches';
+import { panelDetail } from '../detailTextures';
+import { roadMaterial } from './ground';
+import { MATERIALS, type Placement, boxCollider, instanced, lightStrip, solidBox, solidCylinder, solidTube } from './kit';
+import { Bollards, rover } from './props';
+import { signPanel } from './signs';
 
 // Everything outside the dome: the landing pad and lander, solar arrays,
 // habitat modules joined by tubes, and antenna masts. Returns an update
@@ -38,16 +43,21 @@ function buildLandingPad(scene: THREE.Object3D, world: RAPIER.World) {
   }
   instanced(scene, new THREE.BoxGeometry(0.3, 0.1, 0.3), MATERIALS.amberLight, lights, false);
 
-  // Paved path from the south airlock to the pad.
+  // A road from the south airlock to the pad, with lit posts down both edges.
   const pathStart = CONFIG.city.domeRadius + 9;
   const pathEnd = z - radius;
-  const texture = pavingTexture();
-  texture.repeat.set(6 / 8, (pathEnd - pathStart) / 8);
-  const path = new THREE.Mesh(new THREE.PlaneGeometry(6, pathEnd - pathStart), new THREE.MeshStandardMaterial({ map: texture, roughness: 0.85 }));
-  path.rotation.x = -Math.PI / 2;
-  path.position.set(x, 0.012, (pathStart + pathEnd) / 2);
+  const path = new THREE.Mesh(new THREE.PlaneGeometry(6, pathEnd - pathStart), roadMaterial());
+  const uv = path.geometry.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getY(i) * (pathEnd - pathStart)) / 8, uv.getX(i));
+  path.rotation.set(-Math.PI / 2, 0, 0);
+  path.position.set(x, 0.03, (pathStart + pathEnd) / 2);
   path.receiveShadow = true;
   scene.add(path);
+  const posts = new Bollards();
+  for (let pz = pathStart + 2; pz < pathEnd; pz += 5) for (const px of [-3.5, 3.5]) posts.add(world, x + px, pz);
+  posts.build(scene);
+  padExtras(scene, world, x, z, radius);
+  rover(scene, world, x + 12, z - 21, -0.4);
 
   buildLander(scene, world, x + 3, z - 2);
 
@@ -61,9 +71,7 @@ function buildLandingPad(scene: THREE.Object3D, world: RAPIER.World) {
     [27, 120, 1.2, 0],
     [-14, 146, 0.8, 0],
   ];
-  for (const [cx, cz, yaw, level] of containers) {
-    solidBox(scene, world, { x: cx, y: 1.3 + level * 2.6, z: cz }, { x: 6, y: 2.6, z: 2.5 }, MATERIALS.lightPanel, yaw);
-  }
+  containers.forEach(([cx, cz, yaw, level], i) => container(scene, world, cx, cz, yaw, 1.3 + level * 2.6, CONTAINER_COLORS[i % CONTAINER_COLORS.length]));
 }
 
 // A parked lander, like the real ones: a gold-foil-wrapped descent stage on four
@@ -181,6 +189,39 @@ function buildModules(scene: THREE.Object3D, world: RAPIER.World) {
       band.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), half.clone().normalize());
       scene.add(band);
     }
+    // Domed end caps, a hatch on one end, and ribs round the hull.
+    const axis = half.clone().normalize();
+    for (const end of [-1, 1]) {
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(3, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), MATERIALS.lightPanel);
+      cap.scale.y = 0.45;
+      cap.position.copy(center).addScaledVector(half, end);
+      cap.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis.clone().multiplyScalar(end));
+      cap.castShadow = cap.receiveShadow = true;
+      scene.add(cap);
+    }
+    const hatchAt = center.clone().addScaledVector(half, 1).addScaledVector(axis, 1.32);
+    const hatch = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.12, 8, 24), MATERIALS.graphite);
+    hatch.position.copy(hatchAt);
+    hatch.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
+    scene.add(hatch);
+    const door = new THREE.Mesh(new THREE.CircleGeometry(0.66, 24), MATERIALS.shadow);
+    door.position.copy(hatchAt).addScaledVector(axis, 0.02);
+    door.quaternion.copy(hatch.quaternion);
+    scene.add(door);
+    for (let k = -2; k <= 2; k++) {
+      if (k === 0) continue;
+      const rib = new THREE.Mesh(new THREE.TorusGeometry(3.04, 0.07, 6, 40), MATERIALS.graphite);
+      rib.position.copy(center).addScaledVector(half, k * 0.45);
+      rib.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
+      rib.castShadow = true;
+      scene.add(rib);
+    }
+    // A radiator panel on a stand beside it, edge-on to the sun.
+    const sideways = new THREE.Vector3(-axis.z, 0, axis.x);
+    const radiator = center.clone().addScaledVector(sideways, 5.2).setY(4.2);
+    solidBox(scene, world, { x: radiator.x, y: 2.2, z: radiator.z }, { x: 0.18, y: 4.4, z: 0.18 }, MATERIALS.graphite, 0, false);
+    const panel = solidBox(scene, world, { x: radiator.x, y: 4.6, z: radiator.z }, { x: 0.06, y: 2.2, z: length * 0.55 }, MATERIALS.facade, Math.atan2(axis.x, axis.z), false);
+    panel.castShadow = true;
     // Four legs.
     for (const along of [-0.35, 0.35]) {
       for (const across of [-1.8, 1.8]) {
@@ -199,7 +240,17 @@ function buildModules(scene: THREE.Object3D, world: RAPIER.World) {
     [1, 3],
     [0, 3],
   ]) {
-    solidTube(scene, world, centers[a], centers[b], 1.3, MATERIALS.concrete);
+    solidTube(scene, world, centers[a], centers[b], 1.3, MATERIALS.lightPanel);
+    // Ribs round the tube every 2 m.
+    const run = centers[b].clone().sub(centers[a]);
+    const length = run.length();
+    const axis = run.normalize();
+    for (let t = 4; t < length - 4; t += 2) {
+      const rib = new THREE.Mesh(new THREE.TorusGeometry(1.34, 0.06, 6, 24), MATERIALS.graphite);
+      rib.position.copy(centers[a]).addScaledVector(axis, t);
+      rib.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
+      scene.add(rib);
+    }
   }
 }
 
@@ -239,30 +290,69 @@ function buildAntenna(scene: THREE.Object3D, world: RAPIER.World, x: number, z: 
   return blink;
 }
 
-// Landing pad paint: dark deck, amber outer ring, white aiming circle and cross.
+// Landing pad paint: dark deck plates with seams, a scorched middle, an amber outer
+// ring with chevrons, a white aiming circle and cross, and the pad's number.
 function padMarkings() {
-  const size = 512;
+  const size = 1024;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d')!;
   const c = size / 2;
-  ctx.fillStyle = '#4b4844';
+  ctx.fillStyle = '#46433f';
   ctx.fillRect(0, 0, size, size);
-  ctx.lineWidth = 18;
-  ctx.strokeStyle = '#ffa31a';
+  // Deck plates, each a slightly different shade.
+  const plate = size / 16;
+  for (let i = 0; i < 16; i++) {
+    for (let j = 0; j < 16; j++) {
+      const shade = 64 + ((i * 7 + j * 13) % 9);
+      ctx.fillStyle = `rgb(${shade},${shade - 2},${shade - 5})`;
+      ctx.fillRect(i * plate + 1, j * plate + 1, plate - 2, plate - 2);
+    }
+  }
+  // Exhaust scorching in the middle.
+  const scorch = ctx.createRadialGradient(c, c, 0, c, c, c * 0.5);
+  scorch.addColorStop(0, 'rgba(18,16,14,0.75)');
+  scorch.addColorStop(1, 'rgba(18,16,14,0)');
+  ctx.fillStyle = scorch;
+  ctx.fillRect(0, 0, size, size);
+  ctx.lineWidth = 30;
+  ctx.strokeStyle = '#e8961f';
   ctx.beginPath();
-  ctx.arc(c, c, c * 0.88, 0, Math.PI * 2);
+  ctx.arc(c, c, c * 0.86, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.lineWidth = 10;
+  // Chevrons pointing in, round the ring.
+  ctx.fillStyle = '#e8961f';
+  for (let k = 0; k < 24; k++) {
+    const a = (k / 24) * Math.PI * 2;
+    ctx.save();
+    ctx.translate(c + Math.cos(a) * c * 0.76, c + Math.sin(a) * c * 0.76);
+    ctx.rotate(a + Math.PI / 2);
+    ctx.beginPath();
+    ctx.moveTo(-18, -8);
+    ctx.lineTo(0, 10);
+    ctx.lineTo(18, -8);
+    ctx.lineTo(18, 2);
+    ctx.lineTo(0, 20);
+    ctx.lineTo(-18, 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.lineWidth = 18;
   ctx.strokeStyle = '#ece6da';
   ctx.beginPath();
   ctx.arc(c, c, c * 0.45, 0, Math.PI * 2);
   ctx.stroke();
   ctx.fillStyle = '#ece6da';
-  ctx.fillRect(c - 6, c - c * 0.7, 12, c * 1.4);
-  ctx.fillRect(c - c * 0.7, c - 6, c * 1.4, 12);
+  ctx.fillRect(c - 10, c - c * 0.62, 20, c * 1.24);
+  ctx.fillRect(c - c * 0.62, c - 10, c * 1.24, 20);
+  ctx.font = 'bold 64px "SF Mono", Menlo, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('PAD 01', c, c + c * 0.6);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
   return texture;
 }
 
@@ -284,4 +374,100 @@ function solarCells() {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   return texture;
+}
+
+// Cargo containers: corrugated sides, corner posts, and lock bars on the doors.
+const CONTAINER_COLORS = [
+  new THREE.MeshStandardMaterial({ color: 0xd9d3c7, roughness: 0.55, metalness: 0.2 }),
+  new THREE.MeshStandardMaterial({ color: 0xb5652c, roughness: 0.55, metalness: 0.2 }),
+  new THREE.MeshStandardMaterial({ color: 0x4a4744, roughness: 0.5, metalness: 0.3 }),
+];
+for (const material of CONTAINER_COLORS) patchTriplanar(material, { ...panelDetail(), metersPerTile: 4, bumpScale: 0.5, dust: 1 });
+
+function container(scene: THREE.Object3D, world: RAPIER.World, cx: number, cz: number, yaw: number, y: number, material: THREE.Material) {
+  const length = 6;
+  const height = 2.6;
+  const width = 2.5;
+  solidBox(scene, world, { x: cx, y, z: cz }, { x: length - 0.08, y: height - 0.08, z: width - 0.08 }, material, yaw, false);
+  boxCollider(world, { x: cx, y, z: cz }, { x: length, y: height, z: width }, new THREE.Euler(0, yaw, 0));
+  const along = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  const across = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+  const at = (a: number, b: number) => ({ x: cx + along.x * a + across.x * b, z: cz + along.z * a + across.z * b });
+  for (const a of [-1, 1]) {
+    for (const b of [-1, 1]) {
+      const p = at(a * (length / 2 - 0.08), b * (width / 2 - 0.08));
+      solidBox(scene, world, { x: p.x, y, z: p.z }, { x: 0.17, y: height, z: 0.17 }, MATERIALS.graphite, yaw, false);
+    }
+  }
+  // Corrugation down both long sides.
+  for (let a = -length / 2 + 0.35; a < length / 2 - 0.2; a += 0.3) {
+    for (const b of [-1, 1]) {
+      const p = at(a, b * (width / 2 - 0.03));
+      solidBox(scene, world, { x: p.x, y, z: p.z }, { x: 0.12, y: height - 0.3, z: 0.06 }, material, yaw, false);
+    }
+  }
+  // Door end: lock bars.
+  for (const b of [-0.75, -0.35, 0.35, 0.75]) {
+    const p = at(length / 2, b);
+    solidBox(scene, world, { x: p.x, y, z: p.z }, { x: 0.05, y: height - 0.3, z: 0.05 }, MATERIALS.graphite, yaw, false);
+  }
+}
+
+// Around the pad: floodlight masts, two fuel tanks piped to the deck, and a control hut.
+function padExtras(scene: THREE.Object3D, world: RAPIER.World, x: number, z: number, radius: number) {
+  for (const angle of [45, 135, 225, 315]) {
+    const a = THREE.MathUtils.degToRad(angle);
+    const mx = x + Math.sin(a) * (radius + 2.5);
+    const mz = z + Math.cos(a) * (radius + 2.5);
+    solidBox(scene, world, { x: mx, y: 5, z: mz }, { x: 0.25, y: 10, z: 0.25 }, MATERIALS.graphite);
+    const head = solidBox(scene, world, { x: mx, y: 10.1, z: mz }, { x: 1.6, y: 0.4, z: 0.5 }, MATERIALS.graphite, a, false);
+    head.rotation.set(-0.45, a, 0, 'YXZ');
+    const lamp = lightStrip(scene, { x: mx - Math.sin(a) * 0.15, y: 9.95, z: mz - Math.cos(a) * 0.15 }, { x: 1.4, y: 0.04, z: 0.35 }, MATERIALS.whiteLight, a);
+    lamp.rotation.set(-0.45, a, 0, 'YXZ');
+  }
+  // Fuel tanks on legs.
+  for (const [tx, tz] of [
+    [x + 22, z - 22],
+    [x + 26.5, z - 19],
+  ]) {
+    const tank = new THREE.Mesh(new THREE.SphereGeometry(1.7, 24, 16), MATERIALS.lightPanel);
+    tank.position.set(tx, 3.2, tz);
+    tank.castShadow = tank.receiveShadow = true;
+    scene.add(tank);
+    const band = new THREE.Mesh(new THREE.TorusGeometry(1.72, 0.08, 6, 32), MATERIALS.orangeLight);
+    band.rotation.x = Math.PI / 2;
+    band.position.set(tx, 3.2, tz);
+    scene.add(band);
+    for (let k = 0; k < 4; k++) {
+      const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+      const foot = new THREE.Vector3(tx + Math.sin(a) * 1.5, 0, tz + Math.cos(a) * 1.5);
+      solidTube(scene, world, foot, new THREE.Vector3(tx + Math.sin(a) * 1.0, 2.6, tz + Math.cos(a) * 1.0), 0.09, MATERIALS.graphite);
+    }
+    world.createCollider(RAPIER.ColliderDesc.ball(1.7).setTranslation(tx, 3.2, tz));
+  }
+  // A pipe from the tanks to the edge of the pad, on low stands.
+  const from = new THREE.Vector3(x + 22, 0.5, z - 22);
+  const to = new THREE.Vector3(x + Math.sin(2.3) * radius, 0.5, z + Math.cos(2.3) * radius);
+  solidTube(scene, world, from, to, 0.16, MATERIALS.trim);
+  // The control hut, with a window onto the pad and its name over the door.
+  const hx = x - 21;
+  const hz = z - 21;
+  const yaw = Math.atan2(x - hx, z - hz);
+  solidBox(scene, world, { x: hx, y: 1.6, z: hz }, { x: 5, y: 3.2, z: 4 }, MATERIALS.lightPanel, yaw);
+  solidBox(scene, world, { x: hx, y: 3.3, z: hz }, { x: 5.4, y: 0.2, z: 4.4 }, MATERIALS.graphite, yaw, false);
+  const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+  const front = new THREE.Vector3(hx, 0, hz).addScaledVector(forward, 2.01);
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.0), new THREE.MeshStandardMaterial({ color: 0x0a0908, emissive: 0xffd9a0, emissiveIntensity: 0.6, roughness: 0.05 }));
+  glass.position.set(front.x, 2.1, front.z);
+  glass.rotation.y = yaw;
+  scene.add(glass);
+  const sign = signPanel('Pad 01 control', 0.26, 'amber');
+  sign.position.set(front.x, 2.85, front.z);
+  sign.position.addScaledVector(forward, 0.01);
+  sign.rotation.y = yaw;
+  scene.add(sign);
+  const dish = new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 6, 0, Math.PI * 2, 0, 0.8), new THREE.MeshStandardMaterial({ color: 0xe6e0d6, roughness: 0.5, side: THREE.DoubleSide }));
+  dish.position.set(hx, 4.0, hz);
+  dish.rotation.set(Math.PI, 0, 0.6);
+  scene.add(dish);
 }

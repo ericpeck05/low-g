@@ -1,214 +1,34 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { CONFIG } from '../../config';
-import {
-  BALCONY_EXTRA,
-  PLAZA_RADIUS,
-  RANGE,
-  TOWERS,
-  type TowerSpec,
-  towerPosition,
-} from './layout';
-import { patchTriplanar } from '../../core/materialPatches';
-import { concreteDetail } from '../detailTextures';
-import {
-  MATERIALS,
-  type Placement,
-  boxCollider,
-  instanced,
-  lightStrip,
-  pavingTexture,
-  solidBox,
-  solidCylinder,
-  solidTiltedBox,
-  windowTextures,
-} from './kit';
+import { buildDistrict } from './district';
+import { buildGround } from './ground';
+import { buildPlaza } from './plaza';
+import { signPanel } from './signs';
+import { Greenery } from './props';
+import { Face } from './facade';
+import { MATERIALS, lightStrip, solidBox } from './kit';
+import { RANGE } from './layout';
+import { buildTowers } from './towers';
+import { buildWalkways } from './walkways';
+import { GlassBatch } from './glass';
+import { WindowBatch } from './windows';
 
-// Everything under the dome: paving, the central plaza and beacon, towers,
-// the ring of walkways between them, ramps, lamps, and the indoor shooting range.
+// Everything under the dome: the streets, the central plaza and monument, the towers,
+// the ring of walkways between them and the ramps up to it, the indoor shooting range,
+// and the outer district of low buildings, greenhouses and shops.
 export function buildInterior(scene: THREE.Object3D, world: RAPIER.World) {
-  buildPaving(scene);
-  buildPlaza(scene, world);
-  TOWERS.forEach((tower, i) => buildTower(scene, world, tower, i));
-  buildWalkways(scene, world);
+  const windows = new WindowBatch();
+  const green = new Greenery();
+  const glass = new GlassBatch();
+  buildGround(scene);
+  buildPlaza(scene, world, green);
+  buildTowers(scene, world, windows);
+  buildWalkways(scene, world, glass);
   buildRange(scene, world);
-}
-
-function buildPaving(scene: THREE.Object3D) {
-  const radius = CONFIG.city.domeRadius - 0.6;
-  const texture = pavingTexture();
-  texture.repeat.set((radius * 2) / 8, (radius * 2) / 8); // 8 m per texture tile (four 2 m slabs)
-  const material = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.85 });
-  // Fine concrete grain on top of the slab pattern, so it isn't flat up close.
-  patchTriplanar(material, { ...concreteDetail(), metersPerTile: 2, bumpScale: 0.5 });
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(radius, 96), material);
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = 0.012; // just above the flat ground underneath
-  floor.receiveShadow = true;
-  scene.add(floor);
-}
-
-function buildPlaza(scene: THREE.Object3D, world: RAPIER.World) {
-  // A low round platform (low enough to step onto) with a ring of light set into it.
-  solidCylinder(scene, world, 0, 0, 0, PLAZA_RADIUS, 0.2, MATERIALS.concrete, 48);
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(PLAZA_RADIUS - 1.5, 0.08, 6, 96), MATERIALS.amberLight);
-  ring.rotation.x = Math.PI / 2;
-  ring.position.y = 0.21;
-  scene.add(ring);
-
-  // The beacon: a tall dark obelisk banded with light. The city's landmark.
-  solidCylinder(scene, world, 0, 0.2, 0, 1.3, 13, MATERIALS.darkMetal, 6);
-  for (const y of [3, 6, 9, 12]) {
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(1.36, 1.36, 0.3, 6), MATERIALS.amberLight);
-    band.position.y = y;
-    scene.add(band);
-  }
-  const cap = new THREE.Mesh(new THREE.OctahedronGeometry(1.1), MATERIALS.whiteLight);
-  cap.position.y = 14.4;
-  scene.add(cap);
-  const glow = new THREE.PointLight(0xffa31a, 25, 35, 1.6);
-  glow.position.set(0, 7, 0);
-  scene.add(glow);
-
-  // Lamp posts around the plaza: one batch for the posts, one for the lights on top.
-  const posts: Placement[] = [];
-  const lamps: Placement[] = [];
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-    const x = Math.sin(a) * (PLAZA_RADIUS + 3);
-    const z = Math.cos(a) * (PLAZA_RADIUS + 3);
-    posts.push({ position: { x, y: 2, z } });
-    lamps.push({ position: { x, y: 4.1, z } });
-    boxCollider(world, { x, y: 2, z }, { x: 0.2, y: 4, z: 0.2 });
-  }
-  instanced(scene, new THREE.BoxGeometry(0.2, 4, 0.2), MATERIALS.darkMetal, posts);
-  instanced(scene, new THREE.BoxGeometry(0.6, 0.2, 0.6), MATERIALS.whiteLight, lamps, false);
-
-  // Benches facing the beacon.
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2;
-    const x = Math.sin(a) * 9;
-    const z = Math.cos(a) * 9;
-    solidBox(scene, world, { x, y: 0.45, z }, { x: 3.2, y: 0.5, z: 0.8 }, MATERIALS.trim, a);
-  }
-}
-
-function buildTower(scene: THREE.Object3D, world: RAPIER.World, tower: TowerSpec, index: number) {
-  const p = towerPosition(tower);
-  const { map, emissiveMap, roughnessMap } = windowTextures(20 + index);
-  // About one texture tile (4 windows by 8 floors) per 10 m around and 28 m up.
-  const around = (2 * Math.PI * tower.radius) / 10;
-  map.repeat.set(around, tower.height / 28);
-  emissiveMap.repeat.copy(map.repeat);
-  roughnessMap.repeat.copy(map.repeat);
-  const walls = new THREE.MeshStandardMaterial({
-    map,
-    emissiveMap,
-    roughnessMap,
-    emissive: 0xffffff,
-    emissiveIntensity: 1.05,
-    roughness: 1,
-  });
-  // Cylinder materials: [sides, top, bottom].
-  solidCylinder(scene, world, p.x, 0, p.z, tower.radius, tower.height, [walls, MATERIALS.trim, MATERIALS.trim], tower.sides);
-
-  // Floor bands every 4 m: they stand out a little from the wall and throw thin shadow lines.
-  for (let y = 4; y < tower.height - 1.5; y += 4) {
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(tower.radius + 0.14, tower.radius + 0.14, 0.22, tower.sides), MATERIALS.trim);
-    band.position.set(p.x, y, p.z);
-    band.castShadow = true;
-    band.receiveShadow = true;
-    scene.add(band);
-  }
-
-  // Rooftop equipment on the far side from the plaza (the near edge has a target).
-  const outward = new THREE.Vector3(p.x, 0, p.z).normalize();
-  const side = new THREE.Vector3(outward.z, 0, -outward.x);
-  const roofSpot = (out: number, across: number) => p.clone().addScaledVector(outward, out).addScaledVector(side, across);
-  const hvac = roofSpot(tower.radius * 0.45, -tower.radius * 0.35);
-  solidBox(scene, world, { x: hvac.x, y: tower.height + 0.5, z: hvac.z }, { x: 1.8, y: 1, z: 1.2 }, MATERIALS.lightPanel, Math.atan2(outward.x, outward.z));
-  const fan = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.06, 20), MATERIALS.darkMetal);
-  fan.position.set(hvac.x, tower.height + 1.03, hvac.z);
-  scene.add(fan);
-  const mast = roofSpot(tower.radius * 0.55, tower.radius * 0.35);
-  solidBox(scene, world, { x: mast.x, y: tower.height + 1.5, z: mast.z }, { x: 0.12, y: 3, z: 0.12 }, MATERIALS.darkMetal);
-  lightStrip(scene, { x: mast.x, y: tower.height + 3.05, z: mast.z }, { x: 0.15, y: 0.15, z: 0.15 }, MATERIALS.orangeLight);
-
-  // Roof: a parapet light ring and a small rooftop hut.
-  const crown = new THREE.Mesh(
-    new THREE.CylinderGeometry(tower.radius + 0.05, tower.radius + 0.05, 0.25, tower.sides),
-    MATERIALS.amberLight,
-  );
-  crown.position.set(p.x, tower.height - 0.4, p.z);
-  scene.add(crown);
-  solidBox(scene, world, { x: p.x, y: tower.height + 1.2, z: p.z }, { x: 2.5, y: 2.4, z: 2.5 }, MATERIALS.lightPanel);
-  // A blinking-style marker light on the tall ones.
-  if (tower.height > 25) lightStrip(scene, { x: p.x, y: tower.height + 2.6, z: p.z }, { x: 0.4, y: 0.4, z: 0.4 }, MATERIALS.orangeLight);
-
-  // Balcony ring at walkway height, where the bridges meet the tower.
-  const h = CONFIG.city.walkwayHeight;
-  solidCylinder(scene, world, p.x, h - 0.4, p.z, tower.radius + BALCONY_EXTRA, 0.4, MATERIALS.concrete, 32);
-  const edge = new THREE.Mesh(new THREE.TorusGeometry(tower.radius + BALCONY_EXTRA, 0.06, 6, 48), MATERIALS.amberLight);
-  edge.rotation.x = Math.PI / 2;
-  edge.position.set(p.x, h + 0.02, p.z);
-  scene.add(edge);
-}
-
-// Bridges between neighboring towers at walkway height, plus ramps up from the ground.
-function buildWalkways(scene: THREE.Object3D, world: RAPIER.World) {
-  const h = CONFIG.city.walkwayHeight;
-  for (let i = 0; i < TOWERS.length; i++) {
-    const a = TOWERS[i];
-    const b = TOWERS[(i + 1) % TOWERS.length];
-    const pa = towerPosition(a);
-    const pb = towerPosition(b);
-    const direction = pb.clone().sub(pa);
-    const distance = direction.length();
-    direction.normalize();
-    // Start and end at each balcony's edge, overlapping a little so there's no seam.
-    const start = pa.clone().addScaledVector(direction, a.radius + BALCONY_EXTRA - 0.5);
-    const end = pb.clone().addScaledVector(direction, -(b.radius + BALCONY_EXTRA - 0.5));
-    const length = start.distanceTo(end);
-    const middle = start.clone().add(end).multiplyScalar(0.5);
-    const yaw = Math.atan2(direction.x, direction.z);
-    if (length <= 0 || distance <= 0) continue;
-
-    solidBox(scene, world, { x: middle.x, y: h - 0.2, z: middle.z }, { x: 4, y: 0.4, z: length }, MATERIALS.concrete, yaw);
-    // Railings with a glowing top rail.
-    const side = new THREE.Vector3(direction.z, 0, -direction.x);
-    for (const s of [-1, 1]) {
-      const rail = middle.clone().addScaledVector(side, s * 1.95);
-      solidBox(scene, world, { x: rail.x, y: h + 0.5, z: rail.z }, { x: 0.1, y: 1, z: length }, MATERIALS.darkMetal, yaw);
-      lightStrip(scene, { x: rail.x, y: h + 1.03, z: rail.z }, { x: 0.12, y: 0.06, z: length }, MATERIALS.amberLight, yaw);
-    }
-  }
-
-  // Ramps from the plaza up to two of the balconies (18 degrees: an easy walk).
-  for (const index of [0, 2]) {
-    const tower = TOWERS[index];
-    const p = towerPosition(tower);
-    const inward = p.clone().negate().normalize();
-    const angle = THREE.MathUtils.degToRad(18);
-    const run = h / Math.tan(angle);
-    const top = p.clone().addScaledVector(inward, tower.radius + BALCONY_EXTRA - 0.3).setY(h);
-    const bottom = top.clone().addScaledVector(inward, run).setY(0);
-    const length = top.distanceTo(bottom);
-    const thickness = 0.4;
-    const yaw = Math.atan2(top.x - bottom.x, top.z - bottom.z);
-    // Center the slab so its top surface runs from the ground to the balcony.
-    const center = top.clone().add(bottom).multiplyScalar(0.5);
-    center.y -= (thickness / 2) / Math.cos(angle);
-    solidTiltedBox(scene, world, center, { x: 4, y: thickness, z: length }, new THREE.Euler(-angle, yaw, 0, 'YXZ'), MATERIALS.concrete);
-    // Light strips along the ramp's edges.
-    const side = new THREE.Vector3(inward.z, 0, -inward.x);
-    for (const s of [-1, 1]) {
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, length), MATERIALS.amberLight);
-      strip.position.copy(center).addScaledVector(side, s * 1.95);
-      strip.position.y += 0.25;
-      strip.rotation.set(-angle, yaw, 0, 'YXZ');
-      scene.add(strip);
-    }
-  }
+  buildDistrict(scene, world, windows, green, glass);
+  windows.build(scene);
+  green.build(scene, world);
+  return { glass: glass.build(scene) };
 }
 
 // An enclosed hall with a doorway facing the plaza, a firing line, and lanes.
@@ -232,8 +52,7 @@ function buildRange(scene: THREE.Object3D, world: RAPIER.World) {
     solidBox(scene, world, { x: xStart - t / 2, y: height / 2, z: s * (door + sideWidth / 2) }, { x: t, y: height, z: sideWidth }, MATERIALS.lightPanel);
   }
   solidBox(scene, world, { x: xStart - t / 2, y: (height + 4) / 2, z: 0 }, { x: t, y: height - 4, z: door * 2 }, MATERIALS.lightPanel);
-  // Sign strip over the door.
-  lightStrip(scene, { x: xStart - t - 0.02, y: 5.2, z: 0 }, { x: 0.05, y: 0.35, z: 5 }, MATERIALS.amberLight);
+  rangeExterior(scene, world);
 
   // Dark floor inside, lane lines, and the firing-line counter.
   solidBox(scene, world, { x: midX, y: 0.03, z: 0 }, { x: length, y: 0.06, z: halfWidth * 2 }, MATERIALS.darkMetal, 0, false);
@@ -253,5 +72,63 @@ function buildRange(scene: THREE.Object3D, world: RAPIER.World) {
     const lamp = new THREE.PointLight(0xffd7a0, 12, 30, 1.6);
     lamp.position.set(x, height - 3, 0);
     scene.add(lamp);
+  }
+}
+
+// The outside of the range hall: pilasters down its long sides, a plinth and a deep
+// fascia, louvres high up, a portal and canopy round the door with the hall's name over
+// it, and air handlers on the roof. (Inside is untouched.)
+function rangeExterior(scene: THREE.Object3D, world: RAPIER.World) {
+  const { xStart, xEnd, halfWidth, height } = RANGE;
+  const t = 0.6;
+  const center = new THREE.Vector3((xStart + xEnd) / 2, 0, 0);
+  const halfLength = (xEnd - xStart) / 2 + t;
+  const sides = [
+    { face: new Face(scene, world, center, new THREE.Vector3(0, 0, 1), halfWidth + t), width: halfLength * 2, front: false },
+    { face: new Face(scene, world, center, new THREE.Vector3(0, 0, -1), halfWidth + t), width: halfLength * 2, front: false },
+    { face: new Face(scene, world, center, new THREE.Vector3(1, 0, 0), halfLength), width: (halfWidth + t) * 2, front: false },
+    { face: new Face(scene, world, center, new THREE.Vector3(-1, 0, 0), halfLength), width: (halfWidth + t) * 2, front: true },
+  ];
+  for (const { face, width, front } of sides) {
+    const half = width / 2;
+    face.box(MATERIALS.graphite, -half - 0.05, half + 0.05, 0, 0.5, -0.02, 0.06);
+    face.box(MATERIALS.graphite, -half - 0.2, half + 0.2, height - 0.5, height + 0.6, -0.02, 0.2);
+    face.glow(MATERIALS.amberLight, -half, half, height - 0.54, height - 0.5, 0.12, 0.18);
+    const bays = Math.max(1, Math.round(width / 4));
+    for (let j = 0; j <= bays; j++) {
+      const sAt = -half + (width * j) / bays;
+      if (!(front && Math.abs(sAt) < 4.2)) face.box(MATERIALS.graphite, sAt - 0.25, sAt + 0.25, 0, height - 0.5, -0.02, 0.32);
+      if (j === bays) continue;
+      const mid = sAt + width / bays / 2;
+      if (front && Math.abs(mid) < 4.5) continue;
+      // Louvres high up in each bay.
+      face.box(MATERIALS.shadow, mid - 1.3, mid + 1.3, height - 2.2, height - 0.9, -0.02, 0.02);
+      for (let y = height - 2.1; y < height - 0.95; y += 0.22) face.box(MATERIALS.trim, mid - 1.25, mid + 1.25, y, y + 0.05, 0.02, 0.12);
+    }
+    if (front) {
+      // The portal round the door, a canopy, and the hall's name.
+      face.box(MATERIALS.graphite, -3.7, -3.0, 0, 4.6, -0.02, 0.7, true);
+      face.box(MATERIALS.graphite, 3.0, 3.7, 0, 4.6, -0.02, 0.7, true);
+      face.box(MATERIALS.graphite, -4.2, 4.2, 4.0, 4.6, -0.02, 2.6, true);
+      face.glow(MATERIALS.softLight, -3.6, 3.6, 3.97, 4.0, 0.9, 2.3);
+      face.glow(MATERIALS.amberLight, -4.2, 4.2, 4.0, 4.04, 2.6, 2.64);
+      const sign = signPanel('Firing range 01', 0.42, 'amber');
+      sign.position.copy(face.at(0, 5.3, 0.08));
+      sign.rotation.y = face.yaw;
+      scene.add(sign);
+    }
+  }
+  // Air handlers on the roof.
+  for (const x of [xStart + 9, xEnd - 9]) {
+    solidBox(scene, world, { x, y: height + 1.0, z: 3 }, { x: 3.2, y: 1.2, z: 1.8 }, MATERIALS.lightPanel);
+    for (const dx of [-0.8, 0.8]) {
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.06, 6, 20), MATERIALS.graphite);
+      rim.rotation.x = Math.PI / 2;
+      rim.position.set(x + dx, height + 1.62, 3);
+      scene.add(rim);
+      const blades = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.04, 16), MATERIALS.shadow);
+      blades.position.set(x + dx, height + 1.59, 3);
+      scene.add(blades);
+    }
   }
 }

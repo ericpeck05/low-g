@@ -23,6 +23,12 @@ export const MATERIALS = {
   foil: new THREE.MeshStandardMaterial({ color: 0xd9a64e, metalness: 1, roughness: 0.32, normalMap: foilNormals(), normalScale: new THREE.Vector2(1.4, 1.4) }),
   softLight: new THREE.MeshStandardMaterial({ color: 0xfff3e0, emissive: 0xfff3e0, emissiveIntensity: 0.95 }),
   orangeLight: new THREE.MeshStandardMaterial({ color: 0xff6a1a, emissive: 0xff6a1a, emissiveIntensity: 1.8 }),
+  // Building skins: warm white composite cladding, graphite panels, and bronze fins.
+  facade: new THREE.MeshStandardMaterial({ color: 0xe4ded3, roughness: 0.48, metalness: 0.05 }),
+  graphite: new THREE.MeshStandardMaterial({ color: 0x34322f, roughness: 0.42, metalness: 0.55 }),
+  bronze: new THREE.MeshStandardMaterial({ color: 0x7a6043, roughness: 0.34, metalness: 0.85 }),
+  // A dark recess with no light of its own (behind louvres, inside openings).
+  shadow: new THREE.MeshStandardMaterial({ color: 0x0b0b0a, roughness: 0.9 }),
 };
 
 type Vec3 = { x: number; y: number; z: number };
@@ -33,6 +39,9 @@ patchTriplanar(MATERIALS.concrete, { ...concreteDetail(), metersPerTile: 2, bump
 patchTriplanar(MATERIALS.lightPanel, { ...panelDetail(), metersPerTile: 4, bumpScale: 1.2, dust: 1 });
 patchTriplanar(MATERIALS.trim, { ...panelDetail(), metersPerTile: 4, bumpScale: 1.0, dust: 1 });
 patchTriplanar(MATERIALS.darkMetal, { ...metalDetail(), metersPerTile: 0.5, bumpScale: 0.3, dust: 0.7 });
+patchTriplanar(MATERIALS.facade, { ...panelDetail(), metersPerTile: 4, bumpScale: 1.1, dust: 1 });
+patchTriplanar(MATERIALS.graphite, { ...panelDetail(), metersPerTile: 4, bumpScale: 0.9, dust: 0.8 });
+patchTriplanar(MATERIALS.bronze, { ...metalDetail(), metersPerTile: 0.6, bumpScale: 0.25, dust: 0.6 });
 
 /** A solid box: mesh plus collider. `center` is the middle of the box. */
 export function solidBox(
@@ -100,13 +109,18 @@ export function solidCylinder(
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   parent.add(mesh);
+  prismCollider(world, x, bottom, z, radius, height, sides);
+  return mesh;
+}
+
+/** Just the collision for an upright prism or cylinder (see solidCylinder). */
+export function prismCollider(world: RAPIER.World, x: number, bottom: number, z: number, radius: number, height: number, sides = 24) {
   // For few-sided shapes, use the exact outline so you can stand on the corners.
   const desc =
     sides <= 8
       ? RAPIER.ColliderDesc.convexHull(prismPoints(radius, height, sides))!
       : RAPIER.ColliderDesc.cylinder(height / 2, radius);
-  world.createCollider(desc.setTranslation(x, bottom + height / 2, z));
-  return mesh;
+  return world.createCollider(desc.setTranslation(x, bottom + height / 2, z));
 }
 
 /** A solid cylinder lying between two points (tubes, modules). */
@@ -199,78 +213,11 @@ export function boxCollider(world: RAPIER.World, center: Vec3, size: Vec3, rotat
 }
 
 /**
- * A tower facade: dark wall with rows of windows, some lit warm white or amber.
- * Returns a color map and a glow map; the glow map makes lit windows bloom.
- */
-export function windowTextures(seed: number) {
-  const w = 256;
-  const h = 512;
-  const color = document.createElement('canvas');
-  const glow = document.createElement('canvas');
-  color.width = glow.width = w;
-  color.height = glow.height = h;
-  const c = color.getContext('2d')!;
-  const g = glow.getContext('2d')!;
-  const random = seededRandom(seed);
-
-  c.fillStyle = '#4a4744';
-  c.fillRect(0, 0, w, h);
-  g.fillStyle = '#000';
-  g.fillRect(0, 0, w, h);
-
-  const cols = 4;
-  const rows = 8;
-  const cw = w / cols;
-  const rh = h / rows;
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const x = col * cw + cw * 0.12;
-      const y = row * rh + rh * 0.22;
-      const ww = cw * 0.76;
-      const wh = rh * 0.5;
-      const roll = random();
-      c.fillStyle = '#1e1d1b'; // dark glass
-      c.fillRect(x, y, ww, wh);
-      if (roll < 0.55) {
-        const lit = roll < 0.12 ? '#ffa31a' : roll < 0.4 ? '#ffe8c4' : '#b89a70';
-        c.fillStyle = lit;
-        c.fillRect(x, y, ww, wh);
-        g.fillStyle = lit;
-        g.fillRect(x, y, ww, wh);
-      }
-    }
-    // A thin floor line between stories.
-    c.fillStyle = '#5c5853';
-    c.fillRect(0, row * rh, w, 3);
-  }
-  // Roughness: glass smooth (it mirrors the bright ground), walls matte.
-  const rough = document.createElement('canvas');
-  rough.width = w;
-  rough.height = h;
-  const r = rough.getContext('2d')!;
-  r.fillStyle = 'rgb(205,205,205)';
-  r.fillRect(0, 0, w, h);
-  r.fillStyle = 'rgb(28,28,28)';
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) r.fillRect(col * cw + cw * 0.12, row * rh + rh * 0.22, cw * 0.76, rh * 0.5);
-  }
-
-  const map = new THREE.CanvasTexture(color);
-  const emissiveMap = new THREE.CanvasTexture(glow);
-  const roughnessMap = new THREE.CanvasTexture(rough);
-  for (const t of [map, emissiveMap]) t.colorSpace = THREE.SRGBColorSpace;
-  for (const t of [map, emissiveMap, roughnessMap]) {
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.anisotropy = 8;
-  }
-  return { map, emissiveMap, roughnessMap };
-}
-
-/**
  * Combines every static mesh under `root` that shares a material into one mesh.
  * Hundreds of separate boxes become a handful of draws, which matters because each
  * one is drawn again for the shadow map and ambient occlusion every frame.
- * Skips moving or color-changing parts (userData.dynamic), see-through glass,
+ * Skips moving or color-changing parts (userData.dynamic), meshes built as one batch
+ * already (userData.merged), see-through glass,
  * instanced meshes, and meshes with several materials.
  */
 export function mergeStatic(root: THREE.Object3D) {
@@ -279,7 +226,7 @@ export function mergeStatic(root: THREE.Object3D) {
   const merged: THREE.Mesh[] = [];
   root.traverse((object) => {
     const mesh = object as THREE.Mesh;
-    if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || mesh.userData.dynamic) return;
+    if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || mesh.userData.dynamic || mesh.userData.merged) return;
     if (Array.isArray(mesh.material) || mesh.material.transparent) return;
     const key = `${mesh.material.uuid}|${mesh.castShadow}|${mesh.receiveShadow}`;
     if (!buckets.has(key)) buckets.set(key, { material: mesh.material, cast: mesh.castShadow, receive: mesh.receiveShadow, parts: [] });

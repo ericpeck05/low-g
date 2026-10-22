@@ -26,6 +26,10 @@ export const TOWERS: TowerSpec[] = [
 
 export const PLAZA_RADIUS = 16;
 
+// A road for carts and rovers round the city, between the towers and the outer district.
+export const RING_ROAD = { inner: 59.5, outer: 65.5 };
+export const DISTRICT_START = 67.5; // the outer buildings start this far from the center
+
 // The indoor shooting range: a long hall east of the plaza.
 export const RANGE = { xStart: 26, xEnd: 64, halfWidth: 8, height: 7 };
 

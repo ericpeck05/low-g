@@ -93,7 +93,7 @@ async function boot() {
   const siege = new SiegeMode(scene, world, impacts);
   const stations = new WeaponStations(scene, buildSiegeGun);
   const composer = createComposer(renderer, scene, camera, viewmodel);
-  composer.excludeFromAO(sky.group, city.glass, footsteps.prints, ...impacts.objects, ...siege.glowObjects, tracers.group);
+  composer.excludeFromAO(sky.group, ...city.glass, footsteps.prints, ...impacts.objects, ...siege.glowObjects, tracers.group);
   const scoring = new Scoring();
   const session = new Session();
   const oxygen = new Oxygen();

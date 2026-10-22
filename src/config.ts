@@ -212,6 +212,8 @@ export const CONFIG = {
     airlockBearings: [180, 0], // degrees: north (toward the Earth) and south (toward the landing pad)
     airlockDoorSpeed: 2.5, // m/s the doors slide
     airlockCycleTime: 1.2, // seconds to "pressurize" between closing one door and opening the other
+    litWindows: 0.62, // share of the city's rooms with their lights on
+    roomBrightness: 1.0, // how bright lit rooms look through the windows
   },
 
   render: {

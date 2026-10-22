@@ -6,7 +6,7 @@ import { CONFIG } from '../config';
 
 type Shader = THREE.WebGLProgramParametersWithUniforms;
 
-function addPatch(material: THREE.Material, key: string, patch: (shader: Shader) => void) {
+export function addPatch(material: THREE.Material, key: string, patch: (shader: Shader) => void) {
   const previous = material.onBeforeCompile;
   const previousKey = material.customProgramCacheKey.bind(material);
   material.onBeforeCompile = (shader, renderer) => {

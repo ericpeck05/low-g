@@ -12,7 +12,7 @@ export function buildCity(scene: THREE.Scene, world: RAPIER.World) {
   const root = new THREE.Group();
   scene.add(root);
   const dome = buildDome(root, world);
-  buildInterior(root, world);
+  const interior = buildInterior(root, world);
   const exterior = buildExterior(root, world);
   const airlocks = CONFIG.city.airlockBearings.map((_, i) => new Airlock(root, world, snappedAirlockBearing(i)));
   const merge = mergeStatic(root);
@@ -20,7 +20,8 @@ export function buildCity(scene: THREE.Scene, world: RAPIER.World) {
   return {
     airlocks,
     merge,
-    glass: dome.glass,
+    /** Everything see-through: the dome, balustrades and greenhouse roofs. */
+    glass: [dome.glass, ...(interior.glass ? [interior.glass] : [])],
     /** The dome's solid shell (sunlight passes through it; bullets and people don't). */
     glassCollider: dome.collider,
     /** Moves doors and blinking lights. Returns airlock sound events. */

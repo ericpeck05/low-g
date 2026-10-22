@@ -97,49 +97,112 @@ export function buildDome(scene: THREE.Object3D, world: RAPIER.World) {
   return { glass, collider };
 }
 
-// Struts along every other meridian and every third ring, plus a concrete footing.
+const PRIMARY_EVERY = 8; // every 8th meridian is a heavy main rib
+const OCULUS_RING = 21; // the ribs end at a compression ring this far up, round an open crown
+
+// The frame: heavy main ribs, lighter struts on every other meridian, rings every third
+// row, a compression ring near the top where the ribs end (so they don't all crowd into
+// one point), and a base wall with a buttress under each main rib.
 function buildFrame(scene: THREE.Object3D) {
-  const segments: [THREE.Vector3, THREE.Vector3][] = [];
+  const light: [THREE.Vector3, THREE.Vector3][] = [];
+  const heavy: [THREE.Vector3, THREE.Vector3][] = [];
   for (let col = 0; col < MERIDIANS; col += 2) {
-    for (let ring = 0; ring < RINGS; ring++) {
+    for (let ring = 0; ring < OCULUS_RING; ring++) {
       if (isGap(col, ring) && isGap(col - 1, ring)) continue;
       if (airlockColumns().includes(col) && ring < AIRLOCK_GAP_ROWS) continue;
-      segments.push([gridPoint(col, ring), gridPoint(col, ring + 1)]);
+      (col % PRIMARY_EVERY === 0 ? heavy : light).push([gridPoint(col, ring), gridPoint(col, ring + 1)]);
     }
   }
-  for (let ring = 3; ring < RINGS; ring += 3) {
+  for (let ring = 3; ring < OCULUS_RING; ring += 3) {
     for (let col = 0; col < MERIDIANS; col++) {
       if (isGap(col, ring)) continue;
-      segments.push([gridPoint(col, ring), gridPoint(col + 1, ring)]);
+      light.push([gridPoint(col, ring), gridPoint(col + 1, ring)]);
     }
   }
+  // The compression ring, and spokes across the crown to a small hub at the top.
+  for (let col = 0; col < MERIDIANS; col++) heavy.push([gridPoint(col, OCULUS_RING), gridPoint(col + 1, OCULUS_RING)]);
+  const top = new THREE.Vector3(0, CONFIG.city.domeHeight, 0);
+  for (let col = 0; col < MERIDIANS; col += PRIMARY_EVERY * 2) {
+    const from = gridPoint(col, OCULUS_RING);
+    const hub = from.clone().lerp(top, 0.8);
+    light.push([from, gridPoint(col, OCULUS_RING + 1)], [gridPoint(col, OCULUS_RING + 1), gridPoint(col, OCULUS_RING + 2)], [gridPoint(col, OCULUS_RING + 2), hub]);
+  }
+  for (let col = 0; col < MERIDIANS; col += 4) {
+    const a = gridPoint(col, OCULUS_RING).lerp(top, 0.8);
+    const b = gridPoint(col + 4, OCULUS_RING).lerp(top, 0.8);
+    heavy.push([a, b]);
+  }
 
-  const strut = new THREE.InstancedMesh(new THREE.BoxGeometry(0.35, 0.35, 1), MATERIALS.darkMetal, segments.length);
+  struts(scene, light, 0.32, 0.32);
+  struts(scene, heavy, 0.7, 0.95);
+
+  // Nodes where the main ribs cross the rings.
+  const nodes: THREE.Vector3[] = [];
+  for (let col = 0; col < MERIDIANS; col += PRIMARY_EVERY) {
+    for (let ring = 3; ring <= OCULUS_RING; ring += 3) if (!isGap(col, ring)) nodes.push(gridPoint(col, ring));
+  }
+  const node = new THREE.InstancedMesh(new THREE.BoxGeometry(1.1, 1.1, 1.1), MATERIALS.graphite, nodes.length);
   const matrix = new THREE.Matrix4();
-  const forward = new THREE.Vector3(0, 0, 1);
-  segments.forEach(([a, b], i) => {
-    const direction = b.clone().sub(a);
-    const length = direction.length();
-    const rotation = new THREE.Quaternion().setFromUnitVectors(forward, direction.normalize());
-    matrix.compose(a.clone().add(b).multiplyScalar(0.5), rotation, new THREE.Vector3(1, 1, length));
-    strut.setMatrixAt(i, matrix);
+  nodes.forEach((p, i) => {
+    const turn = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), p.clone().setY(0).normalize());
+    node.setMatrixAt(i, matrix.compose(p, turn, new THREE.Vector3(1, 1, 1)));
   });
-  strut.castShadow = true; // the frame throws a lattice of shadows across the city
-  scene.add(strut);
+  node.castShadow = true;
+  scene.add(node);
 
-  // Footing: a low concrete curb where the glass meets the ground (open at the airlocks).
-  const footing = new THREE.InstancedMesh(new THREE.BoxGeometry(1.2, 0.5, 1), MATERIALS.concrete, MERIDIANS);
+  // Base wall: a low graphite wall just inside the glass, a buttress under each main rib,
+  // and a line of light along it (open at the airlocks).
+  const forward = new THREE.Vector3(0, 0, 1);
+  const wall = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1.5, 1), MATERIALS.graphite, MERIDIANS);
+  const glow = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.06, 1), MATERIALS.amberLight, MERIDIANS);
   let count = 0;
   for (let col = 0; col < MERIDIANS; col++) {
     if (isGap(col, 0)) continue;
     const a = gridPoint(col, 0);
     const b = gridPoint(col + 1, 0);
     const rotation = new THREE.Quaternion().setFromUnitVectors(forward, b.clone().sub(a).normalize());
-    const middle = a.clone().add(b).multiplyScalar(0.5).setY(0.25);
-    matrix.compose(middle, rotation, new THREE.Vector3(1, 1, a.distanceTo(b)));
-    footing.setMatrixAt(count++, matrix);
+    const inward = a.clone().add(b).multiplyScalar(0.5).setY(0).normalize().multiplyScalar(-0.55);
+    const middle = a.clone().add(b).multiplyScalar(0.5).add(inward);
+    wall.setMatrixAt(count, matrix.compose(middle.clone().setY(0.75), rotation, new THREE.Vector3(0.5, 1, a.distanceTo(b) + 0.02)));
+    glow.setMatrixAt(count, matrix.compose(middle.clone().addScaledVector(inward, 0.48).setY(1.3), rotation, new THREE.Vector3(0.05, 1, a.distanceTo(b) - 0.6)));
+    count++;
   }
-  footing.count = count;
-  footing.receiveShadow = true;
-  scene.add(footing);
+  wall.count = glow.count = count;
+  wall.castShadow = wall.receiveShadow = true;
+  scene.add(wall, glow);
+  const buttresses: THREE.Vector3[] = [];
+  for (let col = 0; col < MERIDIANS; col += PRIMARY_EVERY) if (!isGap(col, 0)) buttresses.push(gridPoint(col, 0));
+  const buttress = new THREE.InstancedMesh(new THREE.BoxGeometry(1.2, 3.2, 2.4), MATERIALS.concrete, buttresses.length);
+  buttresses.forEach((p, i) => {
+    const turn = new THREE.Quaternion().setFromUnitVectors(forward, p.clone().normalize());
+    buttress.setMatrixAt(i, matrix.compose(p.clone().multiplyScalar(1 - 1.2 / p.length()).setY(1.6), turn, new THREE.Vector3(1, 1, 1)));
+  });
+  buttress.castShadow = buttress.receiveShadow = true;
+  scene.add(buttress);
+}
+
+/** Box struts (width by depth across) between pairs of points, drawn as one batch. */
+function struts(scene: THREE.Object3D, segments: [THREE.Vector3, THREE.Vector3][], width: number, depth: number) {
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(width, depth, 1), MATERIALS.darkMetal, segments.length);
+  const matrix = new THREE.Matrix4();
+  const forward = new THREE.Vector3(0, 0, 1);
+  segments.forEach(([a, b], i) => {
+    const direction = b.clone().sub(a);
+    const length = direction.length();
+    // Point along the strut, with its depth facing the dome's center (so heavy ribs stand proud).
+    const along = direction.normalize();
+    const middle = a.clone().add(b).multiplyScalar(0.5);
+    const out = middle.clone().normalize();
+    const side = new THREE.Vector3().crossVectors(out, along).normalize();
+    const up = new THREE.Vector3().crossVectors(along, side).normalize();
+    const basis = new THREE.Matrix4().makeBasis(side, up, along);
+    const rotation = new THREE.Quaternion().setFromRotationMatrix(basis);
+    if (!Number.isFinite(rotation.x)) rotation.setFromUnitVectors(forward, along);
+    // Heavy ribs sit just inside the glass.
+    const inset = middle.clone().addScaledVector(out, -depth / 2);
+    matrix.compose(inset, rotation, new THREE.Vector3(1, 1, length + width * 0.5));
+    mesh.setMatrixAt(i, matrix);
+  });
+  mesh.castShadow = true; // the frame throws a lattice of shadows across the city
+  scene.add(mesh);
 }
