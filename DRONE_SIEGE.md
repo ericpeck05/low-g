@@ -138,5 +138,5 @@ Destroyed drones occasionally drop glowing power-ups that float in low gravity a
 ## Open decisions
 
 - Final name for the mode (working title: Drone Siege)
-- Names for the dome sections behind the blast doors
+- ~~Names for the dome sections behind the blast doors~~ Decided: Plaza (start), Tower Ring, South District, North District. The "blast doors" are see-through energy barriers, so the open dome stays in view.
 - Whether drones can damage or breach the dome itself as an extra twist

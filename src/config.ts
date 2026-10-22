@@ -333,8 +333,97 @@ export const CONFIG = {
         adsFov: 28, eyeRelief: 0.22, recoil: { pitch: 4.5, yaw: 0.6, shake: 0.03, kickBack: 0.09, kickUp: 7 },
         price: 1250, ammoPrice: 625,
       },
+      // The two rare ones only come out of the Supply Drop (no price: there's no wall station).
+      singularity: {
+        name: 'SINGULARITY LAUNCHER', fireMode: 'semi', fireRate: 0.9, burstCount: 1, burstRate: 0, magazine: 3, reserve: 9,
+        reloadTime: 2.8, damage: 0, pellets: 1, pierce: 1, range: 60, falloff: [60, 60], minDamage: 1,
+        hipSpread: 0.5, adsSpread: 0.2, spreadPerShot: 0, spreadRecovery: 4,
+        adsFov: 62, eyeRelief: 0.24, recoil: { pitch: 3.2, yaw: 0.5, shake: 0.025, kickBack: 0.08, kickUp: 6 },
+        price: 0, ammoPrice: 0,
+      },
+      arc: {
+        name: 'ARC CASTER', fireMode: 'auto', fireRate: 3.2, burstCount: 1, burstRate: 0, magazine: 24, reserve: 144,
+        reloadTime: 2.0, damage: 75, pellets: 1, pierce: 1, range: 38, falloff: [38, 38], minDamage: 1,
+        hipSpread: 1.2, adsSpread: 0.5, spreadPerShot: 0.1, spreadRecovery: 6,
+        adsFov: 60, eyeRelief: 0.2, recoil: { pitch: 0.7, yaw: 0.3, shake: 0.008, kickBack: 0.03, kickUp: 2 },
+        price: 0, ammoPrice: 0,
+      },
     },
-    stationReach: 2.4, // meters from a weapon station you can buy from it
+    stationReach: 2.4, // meters from a weapon station (or anything else you can use) you can buy from it
+
+    // The Singularity Launcher's shot: a slow glowing round that collapses into a small
+    // black hole, pulling drones in and crushing the ones that get close.
+    singularity: {
+      speed: 24, // m/s the round flies
+      life: 1.1, // seconds before it collapses where it is, if it hasn't hit anything
+      duration: 3, // seconds the black hole lasts
+      pullRadius: 11, // meters: drones this close are dragged in
+      pull: 16, // m/s² of pull at the middle (less toward the edge)
+      crushRadius: 3.2, // meters: drones this close take damage
+      damagePerSecond: 320,
+      finalBlast: 260, // damage when it collapses, to everything within crushRadius × 1.6
+    },
+    // The Arc Caster's lightning jumps from the drone it hits to the nearest others.
+    arc: {
+      chains: 4, // extra drones one bolt can jump to
+      chainRange: 10, // meters between jumps
+      chainFalloff: 0.8, // each jump does this share of the last one's damage
+    },
+
+    // ---- Opening up the city (Zombies' doors) ----
+    // You start in the plaza. Energy barriers seal off the rest: the tower ring around it,
+    // and the south and north halves of the outer district beyond the ring road. Buy your
+    // way through at the barrier terminals. Each section has its own spawn points and stations.
+    sections: {
+      towers: { name: 'TOWER RING', price: 1000 },
+      south: { name: 'SOUTH DISTRICT', price: 1500 },
+      north: { name: 'NORTH DISTRICT', price: 2000 },
+    },
+    // The city's power is off when a game starts. The substation is out on the surface past
+    // airlock S. Switching it on lights the city and wakes the suit mod and Overclock stations.
+    power: {
+      darkLights: 0.12, // how bright the city's lights are with the power off (1 = normal)
+      darkRooms: 0.12, // and the rooms behind the windows
+      restoreTime: 2.5, // seconds for the lights to come up when it's switched on
+    },
+    // Suit mods (Zombies' perks): bought at mod stations once the power is on, 4 at most.
+    mods: {
+      max: 4,
+      plating: { name: 'REINFORCED PLATING', price: 2500, bonus: 60 }, // extra suit integrity
+      cycler: { name: 'RAPID CYCLER', price: 2000, reloadTime: 0.55 }, // reloads take this share of the time
+      thruster: { name: 'THRUSTER MK II', price: 2000, fuel: 1.6, recharge: 1.8 }, // jetpack tank and refill
+      overcharge: { name: 'OVERCHARGE', price: 2000, fireRate: 1.33 }, // all guns fire this much faster
+      recycler: { name: 'O2 RECYCLER', price: 1500, drain: 0.35 }, // oxygen drains at this share outside
+      medic: { name: 'AUTO-MEDIC', price: 500, maxPerGame: 3, shield: 3 }, // a second chance; seconds untouchable after
+    },
+    // Supply Drop (the Mystery Box): pay, watch it cycle, take what it gives you.
+    supplyDrop: {
+      price: 950,
+      spinTime: 4, // seconds it cycles through weapons
+      takeTime: 8, // seconds you have to take the weapon
+      movesAfter: [4, 7], // it relocates after this many uses (picked at random each time)
+      // How often each weapon comes up (relative).
+      weights: { sidearm: 2, smg: 4, scatter: 4, carbine: 4, rail: 2.5, singularity: 1, arc: 1.2 },
+    },
+    // Overclock (Pack-a-Punch): makes the gun in your hand much stronger.
+    overclock: {
+      price: 5000,
+      time: 3, // seconds it takes
+      damage: 2.2, // damage multiplier
+      magazine: 1.5,
+      reserve: 1.8,
+      fireRate: 1.12,
+      ammoPrice: 3, // buying ammo for an overclocked gun at a wall costs this many times more
+    },
+    // Power-ups dropped by destroyed drones.
+    powerUps: {
+      chance: 0.06, // per drone destroyed
+      perRound: [2, 0.15], // most drops in round n: base + per round × n
+      life: 20, // seconds before one fades away (it blinks for the last 6)
+      pickupRadius: 1.8, // meters
+      duration: 30, // seconds Double Points and One Shot last
+      empPoints: 400, // points for setting off an EMP Blast
+    },
     lostSightTime: 6, // seconds a drone can go without seeing you before it comes hunting for you
     huntSpeed: 1.35, // how much faster than normal a hunting drone flies
     huntTimeout: 10, // seconds of hunting without finding you before it's sent back to a spawn point

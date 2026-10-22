@@ -1,0 +1,18 @@
+/* Drone Siege: power, suit mods and power-up timers. */
+
+.siege-mods .power { color: var(--white); }
+.siege-mods .power.off { color: var(--orange); animation: hud-blink 1s steps(2) infinite; }
+.mod-slots { display: flex; gap: 8px; margin-top: 8px; }
+.mod-slots span { width: 34px; height: 34px; border: 1px solid rgba(245, 240, 232, 0.18); display: flex;
+  align-items: center; justify-content: center; }
+.mod-slots span.filled { border-color: rgba(255, 163, 26, 0.7); background: rgba(255, 163, 26, 0.08);
+  box-shadow: 0 0 8px rgba(255, 163, 26, 0.25); }
+.mod-slots img { width: 26px; height: 26px; }
+
+.powerup-timers { position: absolute; left: 50%; top: 128px; transform: translateX(-50%); gap: 14px;
+  justify-content: center; }
+.powerup { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 163, 26, 0.6); color: var(--white); font-size: 12px; letter-spacing: 0.14em; }
+.powerup img { width: 22px; height: 22px; }
+.powerup b { color: var(--amber); font-size: 18px; min-width: 24px; text-align: right; }
+.powerup.ending { animation: hud-blink 0.5s steps(2) infinite; }

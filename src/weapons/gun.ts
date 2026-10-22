@@ -15,6 +15,9 @@ export class Gun {
   bloom = 0; // extra spread from firing fast, in degrees
   /** Set when the trigger is pulled on an empty gun with nothing left to load. */
   dryFire = false;
+  /** Drone Siege's suit mods: Overcharge speeds up firing, Rapid Cycler shortens reloads. */
+  fireRateScale = 1;
+  reloadScale = 1;
 
   private cooldown = 0; // seconds until the next shot (or burst) is allowed
   private reloadTimer = 0;
@@ -44,7 +47,7 @@ export class Gun {
     this.cooldown = Math.max(0, this.cooldown - dt);
 
     if (this.reloading) {
-      this.reloadTimer -= dt;
+      this.reloadTimer -= dt / this.reloadScale;
       this.reloadProgress = 1 - this.reloadTimer / spec.reloadTime;
       if (this.reloadTimer <= 0) this.finishReload();
       return 0;
@@ -73,7 +76,7 @@ export class Gun {
     if (spec.fireMode === 'burst') {
       this.burstLeft = spec.burstCount;
       this.burstTimer = 0;
-      this.cooldown = 1 / spec.fireRate;
+      this.cooldown = 1 / (spec.fireRate * this.fireRateScale);
       return this.continueBurst(dt);
     }
 
@@ -81,7 +84,7 @@ export class Gun {
     // keeps the rate right even when a frame is slower than the gap between shots.
     let shots = 0;
     while (this.cooldown <= 0 && this.ammo > 0) {
-      this.cooldown += 1 / spec.fireRate;
+      this.cooldown += 1 / (spec.fireRate * this.fireRateScale);
       this.ammo--;
       shots++;
       if (spec.fireMode === 'semi') break;
@@ -144,7 +147,7 @@ export class Gun {
         this.burstLeft = 0;
         break;
       }
-      this.burstTimer += 1 / this.spec.burstRate;
+      this.burstTimer += 1 / (this.spec.burstRate * this.fireRateScale);
       this.burstLeft--;
       this.ammo--;
       shots++;

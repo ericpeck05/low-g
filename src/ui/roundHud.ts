@@ -64,9 +64,9 @@ export class RoundHud {
     this.counter.classList.remove('swarm');
   }
 
-  /** A short message on the banner (a power-up, a reward). */
-  callout(title: string, subtitle = '') {
-    this.announce(title, subtitle, 2.2);
+  /** A short message on the banner (a power-up, a reward, a tip). */
+  callout(title: string, subtitle = '', seconds = 2.2) {
+    this.announce(title, subtitle, seconds);
   }
 
   // boss: each carrier weak point's health left (0 to 1), or null with no carrier out.

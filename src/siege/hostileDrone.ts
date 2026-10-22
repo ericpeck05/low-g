@@ -30,6 +30,7 @@ export interface DroneContext {
   insideDome: boolean; // which side of the dome glass the player is on
   others: HostileDrone[];
   nav: NavGraph; // the open-air routes through the dome, for finding the player
+  routeBlocked: (a: THREE.Vector3, b: THREE.Vector3) => boolean; // a way sealed by a barrier
 }
 
 export type DroneEvent =
@@ -419,7 +420,7 @@ export class HostileDrone {
     if (this.type === 'kamikaze' && this.sees) return target;
     this.routeTimer -= dt;
     if (ctx.insideDome && this.routeTimer <= 0) {
-      this.route = ctx.nav.route(this.position, ctx.head, ctx.collider);
+      this.route = ctx.nav.route(this.position, ctx.head, ctx.collider, ctx.routeBlocked);
       this.routeTimer = 1.5;
     }
     while (this.route.length > 0 && this.position.distanceTo(this.route[0]) < 2.5) this.route.shift();

@@ -4,10 +4,14 @@ import { CONFIG } from '../config';
 // seconds without being hit, the suit's self-sealing layers repair it.
 export class Suit {
   integrity: number = CONFIG.siege.suit.max;
+  /** Extra integrity from Reinforced Plating. */
+  bonus = 0;
+  /** Seconds left that nothing can hurt it (just after Auto-Medic brings you back). */
+  shielded = 0;
   private calm = Infinity; // seconds since the last hit
 
   get max() {
-    return CONFIG.siege.suit.max;
+    return CONFIG.siege.suit.max + this.bonus;
   }
 
   get fraction() {
@@ -25,13 +29,15 @@ export class Suit {
   }
 
   reset() {
+    this.bonus = 0;
+    this.shielded = 0;
     this.integrity = this.max;
     this.calm = Infinity;
   }
 
   /** Take a hit. Returns true if it broke the suit. */
   damage(amount: number) {
-    if (this.integrity <= 0) return false;
+    if (this.integrity <= 0 || this.shielded > 0) return false;
     this.integrity = Math.max(0, this.integrity - amount);
     this.calm = 0;
     return this.integrity <= 0;
@@ -39,6 +45,7 @@ export class Suit {
 
   update(dt: number) {
     this.calm += dt;
+    this.shielded = Math.max(0, this.shielded - dt);
     if (this.repairing) this.integrity = Math.min(this.max, this.integrity + CONFIG.siege.suit.regenRate * dt);
   }
 }

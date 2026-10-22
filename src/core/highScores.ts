@@ -38,6 +38,28 @@ export function submitHighScore(mode: Mode, value: number): boolean {
   return true;
 }
 
+// Drone Siege also keeps the most drones destroyed in one game.
+const KILLS_KEY = 'lowg.siegeKills.v1';
+
+export function bestSiegeKills(): number {
+  try {
+    return Number(localStorage.getItem(KILLS_KEY) ?? 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Records a Drone Siege game's kills. Returns true if it's a new most. */
+export function submitSiegeKills(kills: number): boolean {
+  if (kills <= bestSiegeKills()) return false;
+  try {
+    localStorage.setItem(KILLS_KEY, String(kills));
+  } catch {
+    // Couldn't save; the result still counts for this screen.
+  }
+  return true;
+}
+
 /** "1:23" style time from seconds. */
 export function formatTime(seconds: number) {
   const s = Math.floor(seconds);
@@ -48,6 +70,7 @@ export function formatTime(seconds: number) {
 export function clearHighScores() {
   try {
     localStorage.removeItem(KEY);
+    localStorage.removeItem(KILLS_KEY);
   } catch {
     // Nothing saved to clear.
   }

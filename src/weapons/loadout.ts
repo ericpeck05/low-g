@@ -70,6 +70,18 @@ export class Loadout {
     return this.incoming;
   }
 
+  /** Swap the gun in a slot for a new one (an upgrade). The one in hand goes down and comes back up. */
+  replace(slot: number, spec: WeaponSpec) {
+    if (slot === this.index) {
+      this.current.holster();
+      this.incoming = new Gun(spec);
+      this.next = slot;
+      this.switchTimer = LOWER_TIME + RAISE_TIME;
+    } else {
+      this.slots[slot] = new Gun(spec);
+    }
+  }
+
   update(dt: number) {
     if (this.switchTimer <= 0) return;
     const wasLowering = this.switchTimer > RAISE_TIME;

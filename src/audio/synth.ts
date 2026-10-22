@@ -5,7 +5,7 @@ import { seededRandom } from '../world/noise';
 
 type Fill = (out: Float32Array, rate: number, random: () => number) => void;
 
-function make(context: BaseAudioContext, seconds: number, seed: number, fill: Fill, peak = 0.9) {
+export function make(context: BaseAudioContext, seconds: number, seed: number, fill: Fill, peak = 0.9) {
   const rate = context.sampleRate;
   const buffer = context.createBuffer(1, Math.ceil(seconds * rate), rate);
   const data = buffer.getChannelData(0);
@@ -21,14 +21,14 @@ function make(context: BaseAudioContext, seconds: number, seed: number, fill: Fi
 
 // ---- Building blocks ----
 
-function noise(length: number, random: () => number) {
+export function noise(length: number, random: () => number) {
   const out = new Float32Array(length);
   for (let i = 0; i < length; i++) out[i] = random() * 2 - 1;
   return out;
 }
 
 /** A standard two-pole filter (the same kind as Web Audio's BiquadFilter). */
-function filter(data: Float32Array, rate: number, type: 'lowpass' | 'highpass' | 'bandpass', freq: number, q = 0.707) {
+export function filter(data: Float32Array, rate: number, type: 'lowpass' | 'highpass' | 'bandpass', freq: number, q = 0.707) {
   const w = (2 * Math.PI * freq) / rate;
   const alpha = Math.sin(w) / (2 * q);
   const cos = Math.cos(w);
@@ -50,7 +50,7 @@ function filter(data: Float32Array, rate: number, type: 'lowpass' | 'highpass' |
 }
 
 /** Add `source` into `out` from `startSeconds`, shaped by a quick attack and exponential decay. */
-function add(out: Float32Array, rate: number, source: Float32Array, startSeconds: number, gain: number, decay: number, attack = 0.001) {
+export function add(out: Float32Array, rate: number, source: Float32Array, startSeconds: number, gain: number, decay: number, attack = 0.001) {
   const start = Math.floor(startSeconds * rate);
   for (let i = 0; i < source.length && start + i < out.length; i++) {
     const t = i / rate;
@@ -60,7 +60,7 @@ function add(out: Float32Array, rate: number, source: Float32Array, startSeconds
 }
 
 /** A struck-metal ring: a few tones that die away. */
-function ping(out: Float32Array, rate: number, startSeconds: number, freqs: number[], decay: number, gain: number) {
+export function ping(out: Float32Array, rate: number, startSeconds: number, freqs: number[], decay: number, gain: number) {
   const start = Math.floor(startSeconds * rate);
   const length = Math.floor(decay * 6 * rate);
   for (let i = 0; i < length && start + i < out.length; i++) {
@@ -72,7 +72,7 @@ function ping(out: Float32Array, rate: number, startSeconds: number, freqs: numb
 }
 
 /** A low thump: a tone that drops in pitch as it fades (a kick-drum shape). */
-function thump(out: Float32Array, rate: number, startSeconds: number, from: number, to: number, decay: number, gain: number) {
+export function thump(out: Float32Array, rate: number, startSeconds: number, from: number, to: number, decay: number, gain: number) {
   const start = Math.floor(startSeconds * rate);
   let phase = 0;
   for (let i = 0; start + i < out.length && i < decay * 8 * rate; i++) {
@@ -83,7 +83,7 @@ function thump(out: Float32Array, rate: number, startSeconds: number, from: numb
   }
 }
 
-const seconds = (s: number, rate: number) => Math.floor(s * rate);
+export const seconds = (s: number, rate: number) => Math.floor(s * rate);
 
 // ---- The sounds ----
 
@@ -388,7 +388,7 @@ export function denied(c: BaseAudioContext) {
 // ---- Drone Siege ----
 
 /** A falling electric zap: a buzzy tone that drops from `from` to `to` Hz. */
-function zap(rate: number, length: number, from: number, to: number, fall: number) {
+export function zap(rate: number, length: number, from: number, to: number, fall: number) {
   const out = new Float32Array(seconds(length, rate));
   let phase = 0;
   for (let i = 0; i < out.length; i++) {

@@ -269,6 +269,101 @@ function buildRail(): GunModel {
   });
 }
 
+// ---- Singularity Launcher: a squat launcher with a containment chamber you can see into ----
+
+function buildSingularity(): GunModel {
+  const root = new THREE.Group();
+  addGripAndTrigger(root);
+  // A heavy receiver, white on top and dark below.
+  mesh(profile([[-0.13, 0.006], [0.16, 0.006], [0.16, 0.085], [0.145, 0.095], [-0.11, 0.095], [-0.13, 0.08]], 0.07, 0.005), M.thermal, root);
+  mesh(profile([[-0.1, 0.006], [0.13, 0.006], [0.13, -0.03], [0.1, -0.04], [-0.08, -0.04], [-0.1, -0.026]], 0.064), M.receiver, root);
+  // The chamber: a dark sphere held in a cage, ringed with light.
+  const glow = glowMaterial(1.6);
+  const core = mesh(new THREE.SphereGeometry(0.038, 20, 14), M.rubber, root);
+  core.position.set(0, 0.05, -0.22);
+  const ring = mesh(new THREE.TorusGeometry(0.05, 0.006, 8, 32), glow, root);
+  ring.position.copy(core.position);
+  ring.rotation.x = Math.PI / 2;
+  for (const a of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+    const bar = box(root, [0.006, 0.006, 0.11], [Math.cos(a) * 0.052, 0.05 + Math.sin(a) * 0.052, -0.22], M.receiver);
+    bar.rotation.z = a;
+  }
+  // A wide, short barrel with an emitter ring at the mouth.
+  tube(root, 0.04, 0.28, 0.44, 0.05, M.receiver, 10).rotation.y = Math.PI / 10;
+  const mouth = mesh(new THREE.TorusGeometry(0.036, 0.007, 8, 28), glow, root);
+  mouth.position.set(0, 0.05, -0.445);
+  tube(root, 0.03, 0.44, 0.45, 0.05, M.rubber, 20);
+  // A handle on top with a simple sight.
+  box(root, [0.016, 0.04, 0.012], [0, 0.115, 0.04], M.receiver);
+  box(root, [0.016, 0.04, 0.012], [0, 0.115, -0.12], M.receiver);
+  box(root, [0.018, 0.012, 0.18], [0, 0.138, -0.04], M.polymer);
+  const sightY = 0.152;
+  const sightRing = mesh(new THREE.TorusGeometry(0.008, 0.0018, 8, 24), M.receiver, root);
+  sightRing.position.set(0, sightY, 0.03);
+  mesh(new THREE.SphereGeometry(0.003, 10, 8), M.amber, root).position.set(0, sightY, -0.12);
+  // Stubby stock.
+  mesh(profile([[-0.13, 0.08], [-0.3, 0.06], [-0.31, -0.06], [-0.27, -0.065], [-0.17, -0.02], [-0.13, -0.02]], 0.05, 0.004), M.polymer, root);
+  // The containment cell: a squat canister with a glowing window.
+  const magazine = new THREE.Group();
+  const can = mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.08, 16), M.polymer, magazine);
+  can.position.set(0, -0.04, 0);
+  box(magazine, [0.008, 0.05, 0.004], [0, -0.04, -0.03], glow);
+  return base({
+    root,
+    magazine,
+    magazineWell: new THREE.Vector3(0, -0.035, -0.09),
+    sight: new THREE.Vector3(0, sightY, 0.03),
+    muzzle: new THREE.Vector3(0, 0.05, -0.455),
+    flash: buildMuzzleFlash(0xfff0d8),
+    flashSize: 1.2,
+    glow,
+  });
+}
+
+// ---- Arc Caster: a coil gun with three prongs that throw lightning ----
+
+function buildArc(): GunModel {
+  const root = new THREE.Group();
+  addGripAndTrigger(root);
+  mesh(profile([[-0.12, 0.008], [0.15, 0.008], [0.15, 0.064], [0.14, 0.072], [-0.1, 0.072], [-0.12, 0.062]], 0.052), M.receiver, root);
+  mesh(profile([[-0.09, 0.008], [0.12, 0.008], [0.12, -0.028], [0.1, -0.036], [-0.07, -0.036], [-0.09, -0.024]], 0.048), M.thermal, root);
+  box(root, [0.021, 0.005, 0.18], [0, 0.0725, -0.03], M.receiver);
+  const sight = addHoloSight(root, 0.01);
+  // A central rod wound with glowing coils.
+  const glow = glowMaterial(1.3);
+  tube(root, 0.008, 0.15, 0.46, BORE, M.steel, 12);
+  for (let i = 0; i < 7; i++) {
+    const coil = mesh(new THREE.TorusGeometry(0.022 - i * 0.0012, 0.005, 8, 22), glow, root);
+    coil.position.set(0, BORE, -(0.18 + i * 0.035));
+  }
+  // Three prongs splayed around the tip.
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI * 2 + Math.PI / 2;
+    const prong = box(root, [0.006, 0.006, 0.12], [Math.cos(a) * 0.03, BORE + Math.sin(a) * 0.03, -0.43], M.receiver);
+    prong.rotation.set(Math.sin(a) * 0.25, -Math.cos(a) * 0.25, 0);
+    mesh(new THREE.SphereGeometry(0.006, 8, 6), glow, root).position.set(Math.cos(a) * 0.04, BORE + Math.sin(a) * 0.04, -0.49);
+  }
+  // Side battery with charge marks, and a skeleton stock.
+  box(root, [0.016, 0.04, 0.12], [-0.034, 0.03, -0.08], M.polymer);
+  for (let i = 0; i < 4; i++) box(root, [0.002, 0.026, 0.012], [-0.0425, 0.03, -0.03 - i * 0.025], glow);
+  for (const y of [0.05, -0.015]) box(root, [0.01, 0.01, 0.19], [0, y, 0.21], M.receiver);
+  mesh(profile([[-0.3, 0.06], [-0.32, 0.06], [-0.32, -0.06], [-0.3, -0.055]], 0.044, 0.003), M.rubber, root);
+  // A cell for a magazine.
+  const magazine = new THREE.Group();
+  box(magazine, [0.032, 0.09, 0.05], [0, -0.045, 0], M.polymer);
+  for (const side of [-1, 1]) box(magazine, [0.002, 0.05, 0.006], [side * 0.0165, -0.045, -0.014], glow);
+  return base({
+    root,
+    magazine,
+    magazineWell: new THREE.Vector3(0, -0.03, -0.085),
+    sight,
+    muzzle: new THREE.Vector3(0, BORE, -0.5),
+    flash: buildMuzzleFlash(0xfff4e0),
+    flashSize: 0.9,
+    glow,
+  });
+}
+
 /** Build the model for one of Drone Siege's guns. */
 export function buildSiegeGun(id: Exclude<WeaponId, 'rifle'>): GunModel {
   switch (id) {
@@ -282,5 +377,48 @@ export function buildSiegeGun(id: Exclude<WeaponId, 'rifle'>): GunModel {
       return buildCarbine();
     case 'rail':
       return buildRail();
+    case 'singularity':
+      return buildSingularity();
+    case 'arc':
+      return buildArc();
   }
+}
+
+// Overclocked guns look the part: bronze and gold metal with an inner amber glow, and
+// energy parts burning white-hot.
+let overclockMaterials: Map<THREE.Material, THREE.Material> | null = null;
+
+function overclockPalette() {
+  if (overclockMaterials) return overclockMaterials;
+  const grain = (M.receiver as THREE.MeshStandardMaterial).bumpMap;
+  const metal = (color: number, roughness: number, glow: number) =>
+    new THREE.MeshStandardMaterial({ color, roughness, metalness: 0.9, bumpMap: grain, bumpScale: 0.3, emissive: 0xff7a10, emissiveIntensity: glow });
+  overclockMaterials = new Map<THREE.Material, THREE.Material>([
+    [M.receiver, metal(0x6e4a22, 0.3, 0.06)],
+    [M.steel, metal(0x9a7a4a, 0.25, 0.04)],
+    [M.thermal, new THREE.MeshStandardMaterial({ color: 0xd8a050, roughness: 0.4, metalness: 0.6, emissive: 0xff9a30, emissiveIntensity: 0.3 })],
+    [M.polymer, new THREE.MeshStandardMaterial({ color: 0x151210, roughness: 0.35, metalness: 0.3, emissive: 0xff7a10, emissiveIntensity: 0.04 })],
+    [M.amber, new THREE.MeshStandardMaterial({ color: 0xfff0d0, emissive: 0xfff0d0, emissiveIntensity: 1.6 })],
+  ]);
+  return overclockMaterials;
+}
+
+/** Turn a freshly built gun model into its overclocked look (in place). */
+export function overclockLook(model: GunModel) {
+  const palette = overclockPalette();
+  const hot = model.glow ? model.glow.clone() : null;
+  if (hot) {
+    hot.emissive.set(0xffe2b8);
+    hot.emissiveIntensity = model.glow!.emissiveIntensity * 1.6;
+  }
+  const swap = (object: THREE.Object3D) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    if (hot && mesh.material === model.glow) mesh.material = hot;
+    else mesh.material = palette.get(mesh.material as THREE.Material) ?? mesh.material;
+  };
+  model.root.traverse(swap);
+  model.magazine.traverse(swap);
+  if (hot) model.glow = hot;
+  return model;
 }

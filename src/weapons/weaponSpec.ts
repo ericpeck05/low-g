@@ -37,6 +37,8 @@ export interface WeaponSpec {
   recoil: { pitch: number; yaw: number; shake: number; kickBack: number; kickUp: number };
   price: number;
   ammoPrice: number;
+  /** Upgraded at Drone Siege's Overclock station. */
+  overclocked: boolean;
 }
 
 /** The rifle used everywhere except Drone Siege: full auto, endless spare magazines. */
@@ -73,6 +75,7 @@ export function rangeRifle(): WeaponSpec {
     recoil: { pitch: k.kickPitch, yaw: k.kickYaw, shake: k.shakeAmount, kickBack: v.kickBack, kickUp: v.kickUp },
     price: 0,
     ammoPrice: 0,
+    overclocked: false,
   };
 }
 
@@ -88,6 +91,38 @@ export function siegeWeapon(id: SiegeWeaponId): WeaponSpec {
     airSpread: r.airSpread,
     adsSpeed: r.adsSpeed,
     adsMoveScale: r.adsMoveScale,
+    overclocked: false,
+  };
+}
+
+/** Each gun's name once it's been overclocked. */
+const OVERCLOCK_NAMES: Record<SiegeWeaponId, string> = {
+  sidearm: 'P-9 SUNSPOT',
+  smg: 'PLASMA TEMPEST',
+  scatter: 'SCATTER NOVA',
+  carbine: 'BURST LANCE',
+  rail: 'RAIL ECLIPSE',
+  singularity: 'EVENT HORIZON',
+  arc: 'STORM CASTER',
+};
+
+/** The same gun overclocked: much harder hitting, more ammo, a little faster, and a new name. */
+export function overclock(spec: WeaponSpec): WeaponSpec {
+  const o = CONFIG.siege.overclock;
+  const id = spec.id as SiegeWeaponId;
+  return {
+    ...spec,
+    name: OVERCLOCK_NAMES[id] ?? spec.name,
+    damage: spec.damage * o.damage,
+    magazine: Math.round(spec.magazine * o.magazine),
+    reserve: Math.round(spec.reserve * o.reserve),
+    fireRate: spec.fireRate * o.fireRate,
+    ammoPrice: spec.ammoPrice * o.ammoPrice,
+    // A few guns get something extra.
+    pellets: id === 'scatter' ? spec.pellets + 3 : spec.pellets,
+    pierce: id === 'rail' ? spec.pierce + 4 : spec.pierce,
+    burstCount: id === 'carbine' ? spec.burstCount + 1 : spec.burstCount,
+    overclocked: true,
   };
 }
 

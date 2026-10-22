@@ -70,12 +70,13 @@ export class NavGraph {
    * A way from `from` to somewhere that can see `to`, as points to fly through in order
    * (straightened where it can cut corners). Empty if there's no way.
    * ignore: a collider the lines may pass through (the player's own body, around `to`).
+   * blocked: links it may not use right now (through a Drone Siege barrier that's up).
    */
-  route(from: THREE.Vector3, to: THREE.Vector3, ignore?: RAPIER.Collider) {
+  route(from: THREE.Vector3, to: THREE.Vector3, ignore?: RAPIER.Collider, blocked?: (a: THREE.Vector3, b: THREE.Vector3) => boolean) {
     const start = this.nearestVisible(from);
     const goal = this.nearestVisible(to, ignore);
     if (start === null || goal === null) return [];
-    const path = this.search(start, goal);
+    const path = this.search(start, goal, blocked);
     if (path.length === 0) return [];
     // String-pulling: skip any point the one before it can see past.
     const points = path.map((n) => this.nodes[n].position);
@@ -109,7 +110,7 @@ export class NavGraph {
   }
 
   // A* search: the shortest chain of joined points from start to goal.
-  private search(start: number, goal: number) {
+  private search(start: number, goal: number, blocked?: (a: THREE.Vector3, b: THREE.Vector3) => boolean) {
     const goalPosition = this.nodes[goal].position;
     const cost = new Map<number, number>([[start, 0]]);
     const cameFrom = new Map<number, number>();
@@ -129,6 +130,7 @@ export class NavGraph {
       visited.add(current);
       for (const next of this.nodes[current].links) {
         if (visited.has(next)) continue;
+        if (blocked?.(this.nodes[current].position, this.nodes[next].position)) continue;
         const through = cost.get(current)! + this.nodes[current].position.distanceTo(this.nodes[next].position);
         if (through >= (cost.get(next) ?? Infinity)) continue;
         cameFrom.set(next, current);

@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { CONFIG } from '../config';
 import { AudioEngine, type Bus } from './engine';
 import type { WeaponId } from '../weapons/weaponSpec';
+import { Music, type MusicState } from './music';
+import * as siege from './siegeSounds';
 import * as synth from './synth';
 
 // Every sound in the game, in one place. main.ts calls the event methods
@@ -17,6 +19,7 @@ export interface AudioFrame {
   thrusting: boolean;
   exertion: number; // 0 resting, 1 sprinting or flying
   suitLow: boolean; // Drone Siege: suit integrity critical
+  music: MusicState;
 }
 
 export class GameAudio {
@@ -31,6 +34,7 @@ export class GameAudio {
   private alarmTimer = 0;
   private suitAlarmTimer = 0;
   private lastPlayed = new Map<string, number>(); // for spacing out sounds many drones make at once
+  private music: Music;
   private variant = 0;
 
   constructor() {
@@ -40,6 +44,11 @@ export class GameAudio {
     this.jetpack = this.buildJetpack(noise);
     this.hum = this.buildHum(noise);
     this.fan = this.buildFan(noise);
+    this.music = new Music(this.engine.context, this.engine.gameOutput);
+  }
+
+  setMusicVolume(level: number) {
+    this.music.setVolume(level);
   }
 
   /** Browsers only allow sound after a click: call this from one. */
@@ -62,6 +71,8 @@ export class GameAudio {
       scatter: [this.sounds.scatterShots, 0.6],
       carbine: [this.sounds.carbineShots, 0.5],
       rail: [this.sounds.railShots, 0.65],
+      singularity: [[this.sounds.singularityShot], 0.7],
+      arc: [this.sounds.arcShots, 0.5],
     }[weapon] as [AudioBuffer[], number];
     this.play(this.pick(list), 'body', { gain, rate: 0.96 + Math.random() * 0.08 });
   }
@@ -209,6 +220,72 @@ export class GameAudio {
     this.play(this.sounds.maxAmmo, 'suit', { gain: 0.6 });
   }
 
+  // ---- Drone Siege progression ----
+
+  singularityHum(position: THREE.Vector3) {
+    this.play(this.sounds.singularityHum, 'world', { gain: 0.9, position });
+  }
+
+  singularityCollapse(position: THREE.Vector3) {
+    this.play(this.sounds.singularityCollapse, 'world', { gain: 1, position });
+  }
+
+  barrierDown(position: THREE.Vector3) {
+    this.play(this.sounds.barrierDown, 'world', { gain: 1, position });
+  }
+
+  barrierHit(position: THREE.Vector3) {
+    if (this.tooSoon('barrierHit', 0.06)) return;
+    this.play(this.sounds.barrierHit, 'world', { gain: 0.6, position });
+  }
+
+  powerOn() {
+    this.play(this.sounds.powerOn, 'suit', { gain: 0.8 });
+  }
+
+  modInstall() {
+    this.play(this.sounds.modInstall, 'suit', { gain: 0.7 });
+  }
+
+  supplyOpen(position: THREE.Vector3) {
+    this.play(this.sounds.supplyOpen, 'world', { gain: 0.9, position });
+    this.play(this.sounds.supplySpin, 'world', { gain: 0.7, position, delay: 0.2 });
+  }
+
+  supplyReveal(position: THREE.Vector3) {
+    this.play(this.sounds.supplyReveal, 'world', { gain: 0.8, position });
+  }
+
+  supplyMove(position: THREE.Vector3) {
+    this.play(this.sounds.supplyMove, 'world', { gain: 1, position });
+  }
+
+  overclockWork(position: THREE.Vector3) {
+    this.play(this.sounds.overclockWork, 'world', { gain: 0.9, position });
+  }
+
+  overclockDone() {
+    this.play(this.sounds.overclockDone, 'suit', { gain: 0.7 });
+  }
+
+  powerUpSpawn(position: THREE.Vector3) {
+    this.play(this.sounds.powerUpSpawn, 'world', { gain: 0.8, position });
+  }
+
+  powerUpGone(position: THREE.Vector3) {
+    this.play(this.sounds.powerUpGone, 'world', { gain: 0.6, position });
+  }
+
+  /** Picking one up: its own jingle, heard in the helmet. */
+  powerUp(kind: 'maxAmmo' | 'doublePoints' | 'oneShot' | 'emp' | 'o2') {
+    const buffer = { maxAmmo: this.sounds.maxAmmo, doublePoints: this.sounds.doublePoints, oneShot: this.sounds.oneShot, emp: this.sounds.emp, o2: this.sounds.o2Surge }[kind];
+    this.play(buffer, 'suit', { gain: kind === 'emp' ? 0.9 : 0.65 });
+  }
+
+  revive() {
+    this.play(this.sounds.revive, 'suit', { gain: 0.8 });
+  }
+
   droneExplosion(position: THREE.Vector3) {
     this.play(this.pick(this.sounds.droneExplosions), 'world', { gain: 1, position, rate: 0.92 + Math.random() * 0.16 });
   }
@@ -229,6 +306,7 @@ export class GameAudio {
     // Your suit's life-support fan, a little more noticeable when it's all you can hear.
     this.fan.gain.setTargetAtTime(f.playing ? 0.035 + 0.04 * vacuum : 0, t, 0.3);
 
+    this.music.update(f.music);
     if (!f.playing) return;
     this.breathe(f, vacuum);
     this.alarm(f);
@@ -432,5 +510,26 @@ function buildSounds(c: BaseAudioContext) {
     denied: synth.denied(c),
     roundEnd: synth.roundEnd(c),
     spawnWarning: synth.spawnWarning(c),
+    singularityShot: siege.singularityShot(c),
+    singularityHum: siege.singularityHum(c),
+    singularityCollapse: siege.singularityCollapse(c),
+    arcShots: range(3).map((i) => siege.arcShot(c, i)),
+    barrierDown: siege.barrierDown(c),
+    barrierHit: siege.barrierHit(c),
+    powerOn: siege.powerOn(c),
+    modInstall: siege.modInstall(c),
+    supplyOpen: siege.supplyOpen(c),
+    supplySpin: siege.supplySpin(c),
+    supplyReveal: siege.supplyReveal(c),
+    supplyMove: siege.supplyMove(c),
+    overclockWork: siege.overclockWork(c),
+    overclockDone: siege.overclockDone(c),
+    powerUpSpawn: siege.powerUpSpawn(c),
+    powerUpGone: siege.powerUpGone(c),
+    doublePoints: siege.doublePoints(c),
+    oneShot: siege.oneShot(c),
+    emp: siege.emp(c),
+    o2Surge: siege.o2Surge(c),
+    revive: siege.revive(c),
   };
 }

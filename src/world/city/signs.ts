@@ -38,6 +38,11 @@ function atlas() {
   return { canvas, material: material! };
 }
 
+/** The shared material for every sign (Drone Siege dims it while the power is off). */
+export function signMaterial() {
+  return atlas().material;
+}
+
 /**
  * A flat lit sign `height` meters tall, as wide as its words need (plus `pad` letter
  * widths of dark panel at each end). Faces +z; place and turn it like any mesh.

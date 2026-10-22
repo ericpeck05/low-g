@@ -12,6 +12,7 @@ import { type DroneContext, type DroneEvent, HostileDrone } from './hostileDrone
 import { NavGraph } from './navGraph';
 import { type DroneStats, type DroneType, type RoundKind, RoundDirector, droneStats } from './rounds';
 import { type SpawnPoint, SpawnPoints } from './spawnPoints';
+import { type SingularityEvent, Singularities } from './singularity';
 import { Suit } from './suit';
 
 // Drone Siege: rounds of hostile drones that hunt you and shoot back. This owns the
@@ -46,7 +47,9 @@ export type SiegeEvent =
   | { kind: 'beep'; position: THREE.Vector3 } // a kamikaze closing in
   | { kind: 'weakPoint'; position: THREE.Vector3 } // one of the carrier's weak points destroyed
   | { kind: 'carrierDown'; position: THREE.Vector3 }
-  | { kind: 'maxAmmo' }; // a swarm round's reward
+  | { kind: 'maxAmmo'; position: THREE.Vector3 } // a swarm round's reward, dropped where the last one fell
+  | { kind: 'killed'; position: THREE.Vector3; type: DroneType } // any drone destroyed (power-ups may drop)
+  | { kind: 'singularity'; position: THREE.Vector3; formed: boolean }; // a black hole forming or collapsing
 
 /** What a shot did to a drone. */
 export interface DroneHit {
@@ -58,6 +61,7 @@ export interface DroneHit {
   position: THREE.Vector3;
   points: number; // earned by this hit
   colliders: number[]; // the drone's collider handles (a piercing shot passes them by)
+  index: number; // which drone (for chain lightning)
 }
 
 /** A drone on its way out of a spawn point. */
@@ -68,6 +72,7 @@ interface Arrival {
 }
 
 const BEAM_RED = new THREE.Color(...CONFIG.siege.glowColor);
+const ZAP_COLOR = new THREE.Color(6, 5, 3.6); // white-hot, a touch warm (player's lightning isn't red)
 const TYPES = Object.keys(DESIGNS) as DroneType[];
 
 export class SiegeMode {
@@ -99,6 +104,16 @@ export class SiegeMode {
   private droneEvents: DroneEvent[] = [];
   private player: SiegePlayer | null = null;
   private ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
+  readonly singularities: Singularities;
+  private zaps: { points: THREE.Vector3[]; age: number }[] = []; // Arc Caster lightning on screen
+  private lastKill = new THREE.Vector3();
+  /** Power-ups: Double Points doubles every point earned; One Shot makes every hit a kill (not the carrier). */
+  pointsScale = 1;
+  oneShot = false;
+  weakPointKills = 0;
+
+  /** Ways through the dome that are sealed off right now (set by the sections: barriers that are up). */
+  routeBlocked: (a: THREE.Vector3, b: THREE.Vector3) => boolean = () => false;
 
   /** True for anything solid that isn't a hostile drone (for rays that should pass through them). */
   readonly blocks = (collider: RAPIER.Collider) => !this.byCollider.has(collider.handle);
@@ -125,7 +140,8 @@ export class SiegeMode {
     if (import.meta.env.DEV) console.debug(`Drone routes: ${this.nav.size} points in ${Math.round(performance.now() - started)} ms`);
     this.bolts = new Bolts(scene, world, this.blocks);
     this.effects = new SiegeEffects(scene, world, this.blocks, impacts);
-    this.beams = new Beams(scene);
+    this.beams = new Beams(scene, 120);
+    this.singularities = new Singularities(scene, world);
     this.setShown(false);
   }
 
@@ -135,6 +151,7 @@ export class SiegeMode {
       ...TYPES.flatMap((type) => this.fleets[type].glowObjects),
       this.bolts.mesh,
       this.beams.group,
+      ...this.singularities.glowObjects,
       ...this.effects.glowObjects,
       ...this.spawnPoints.glowObjects,
     ];
@@ -160,6 +177,9 @@ export class SiegeMode {
     this.coreKills = 0;
     this.points = CONFIG.siege.points.start;
     this.pointsEarned = 0;
+    this.pointsScale = 1;
+    this.oneShot = false;
+    this.weakPointKills = 0;
     this.suit.reset();
     this.rounds.start();
   }
@@ -172,6 +192,8 @@ export class SiegeMode {
     this.snipeFlashes = [];
     this.bolts.clear();
     this.effects.clear();
+    this.singularities.clear();
+    this.zaps = [];
     this.beams.begin();
     this.beams.end();
     this.setShown(false);
@@ -189,12 +211,13 @@ export class SiegeMode {
     const type = drone.type;
     const position = drone.position.clone();
     const colliders = this.collidersOf(drone).map((c) => c.handle);
-    const hit = drone.takeHit(collider, damage, direction);
-    const result: DroneHit = { type, core: hit.core, destroyed: hit.destroyed, blocked: hit.blocked, armored: hit.armored, position, points: 0, colliders };
+    const hit = drone.takeHit(collider, this.oneShot && type !== 'carrier' ? 1e6 : damage, direction);
+    const result: DroneHit = { type, core: hit.core, destroyed: hit.destroyed, blocked: hit.blocked, armored: hit.armored, position, points: 0, colliders, index: drone.index };
     if (hit.blocked) {
       this.emit({ kind: 'shieldBlock', position });
       return result;
     }
+    if (hit.weakPointDestroyed) this.weakPointKills++;
     if (hit.weakPointDestroyed && !hit.destroyed) {
       this.effects.explode(this.weakPointPosition(drone, collider), drone.velocity, 0.6);
       this.emit({ kind: 'weakPoint', position });
@@ -215,7 +238,7 @@ export class SiegeMode {
       : hit.weakPointDestroyed
         ? P.kill
         : P.hit;
-    result.points = Math.max(0, due - already);
+    result.points = Math.max(0, due - already) * this.pointsScale;
     this.scoredShot[i] = this.shot;
     this.scoredPoints[i] = Math.max(already, due);
     this.addPoints(result.points);
@@ -249,7 +272,7 @@ export class SiegeMode {
     for (const event of this.rounds.update(dt, this.alive + this.arrivals.length)) {
       this.emit(event);
       // Clearing a swarm round earns a Max Ammo.
-      if (event.kind === 'roundEnd' && event.special === 'swarm') this.emit({ kind: 'maxAmmo' });
+      if (event.kind === 'roundEnd' && event.special === 'swarm') this.emit({ kind: 'maxAmmo', position: this.lastKill.clone() });
     }
     if (this.rounds.wantsSpawn) this.sendDrone(player, this.rounds.wantsSpawn, inside);
     this.spawnPoints.update(dt);
@@ -265,6 +288,7 @@ export class SiegeMode {
       insideDome: inside,
       others: this.drones,
       nav: this.nav,
+      routeBlocked: this.routeBlocked,
     };
     this.droneEvents.length = 0;
     for (const drone of this.drones) {
@@ -275,6 +299,7 @@ export class SiegeMode {
     for (const event of this.droneEvents) this.handle(event, player);
     this.repairs(dt);
     this.beeps(dt, player);
+    this.blackHoles(dt);
     this.draw(dt);
 
     for (const event of this.bolts.update(dt, player)) {
@@ -322,6 +347,7 @@ export class SiegeMode {
   showForWarmUp(shown: boolean) {
     this.setShown(shown);
     for (const type of TYPES) this.fleets[type].showForWarmUp(shown);
+    this.singularities.showForWarmUp(shown);
   }
 
   // ---- What drones do ----
@@ -439,6 +465,28 @@ export class SiegeMode {
       }
       drone.healing.length = 0;
     }
+    // Arc Caster lightning: a jagged white-hot line through each drone it jumped to, flickering.
+    for (let k = this.zaps.length - 1; k >= 0; k--) {
+      const zap = this.zaps[k];
+      zap.age += dt;
+      if (zap.age > 0.16) {
+        this.zaps.splice(k, 1);
+        continue;
+      }
+      const fade = 1 - zap.age / 0.16;
+      for (let p = 0; p + 1 < zap.points.length; p++) {
+        const a = zap.points[p];
+        const b = zap.points[p + 1];
+        const pieces = Math.max(2, Math.round(a.distanceTo(b) / 1.2));
+        let last = a;
+        for (let q = 1; q <= pieces; q++) {
+          const point = a.clone().lerp(b, q / pieces);
+          if (q < pieces) point.add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.7));
+          this.beams.draw(last, point, ZAP_COLOR, 0.025 + 0.02 * fade, fade);
+          last = point;
+        }
+      }
+    }
     // Sniper shots: a bright line that fades in a moment.
     for (let k = this.snipeFlashes.length - 1; k >= 0; k--) {
       const flash = this.snipeFlashes[k];
@@ -504,6 +552,125 @@ export class SiegeMode {
     this.kills++;
     if (byCore && drone.type !== 'carrier') this.coreKills++;
     this.rounds.onDestroyed();
+    this.lastKill.copy(at);
+    this.emit({ kind: 'killed', position: at, type: drone.type });
+  }
+
+  // ---- The rare guns and power-ups ----
+
+  /**
+   * Damage a drone without a shot (a black hole, lightning). Shields don't stop it; a
+   * carrier's armor still does. Returns the points it earned (a kill's worth if it went down).
+   */
+  damageDrone(drone: HostileDrone, amount: number) {
+    if (!drone.active) return 0;
+    const type = drone.type;
+    const hit = drone.takeHit(type === 'carrier' ? drone.hull : drone.body, this.oneShot && type !== 'carrier' ? 1e6 : amount, drone.forward());
+    let points = 0;
+    if (hit.weakPointDestroyed) {
+      this.weakPointKills++;
+      if (!hit.destroyed) {
+        this.effects.explode(drone.position.clone(), drone.velocity, 0.6);
+        this.emit({ kind: 'weakPoint', position: drone.position.clone() });
+        points = CONFIG.siege.points.kill;
+      }
+    }
+    if (hit.destroyed) {
+      points = type === 'carrier' ? CONFIG.siege.carrier.points : CONFIG.siege.points.kill;
+      this.destroy(drone, false);
+    }
+    points *= this.pointsScale;
+    this.addPoints(points);
+    return points;
+  }
+
+  /**
+   * Arc Caster: lightning that jumps on from the drone a shot hit to the nearest others in
+   * reach (and in sight), weaker at each jump. Returns the points along its path and what it earned.
+   */
+  chainLightning(firstIndex: number, damage: number, chains: number) {
+    const { chainRange, chainFalloff } = CONFIG.siege.arc;
+    const first = this.drones[firstIndex];
+    const path = [first.position.clone()];
+    const struck = new Set<HostileDrone>([first]);
+    let from = first.position.clone();
+    let points = 0;
+    for (let k = 0; k < chains; k++) {
+      let next: HostileDrone | null = null;
+      let best = chainRange;
+      for (const drone of this.drones) {
+        if (!drone.active || struck.has(drone)) continue;
+        const d = drone.position.distanceTo(from);
+        if (d >= best) continue;
+        this.ray.origin = from;
+        this.ray.dir = drone.position.clone().sub(from).divideScalar(d);
+        const wall = this.world.castRay(this.ray, d - 0.6, true, undefined, undefined, undefined, undefined, this.blocks);
+        if (wall) continue;
+        next = drone;
+        best = d;
+      }
+      if (!next) break;
+      damage *= chainFalloff;
+      struck.add(next);
+      path.push(next.position.clone());
+      from = next.position.clone();
+      points += this.damageDrone(next, damage);
+    }
+    return { path, points };
+  }
+
+  /** Draw a lightning bolt through these points for a moment. */
+  zap(points: THREE.Vector3[]) {
+    this.zaps.push({ points, age: 0 });
+  }
+
+  /** EMP Blast: every drone flying goes down at once (not the carrier). Returns how many. */
+  empBlast() {
+    let count = 0;
+    for (const drone of this.drones) {
+      if (!drone.active || drone.type === 'carrier') continue;
+      this.effects.explode(drone.position.clone(), drone.velocity, drone.type === 'kamikaze' ? 1.2 : 1);
+      this.remove(drone);
+      this.kills++;
+      this.rounds.onDestroyed();
+      count++;
+    }
+    this.bolts.clear();
+    return count;
+  }
+
+  /** Fire a Singularity Launcher round. */
+  launchSingularity(from: THREE.Vector3, direction: THREE.Vector3, overclocked: boolean, shooter: RAPIER.Collider) {
+    this.singularities.launch(from, direction, overclocked, shooter);
+  }
+
+  // Black holes: move them, drag drones toward them, crush the close ones, and burst at the end.
+  private blackHoles(dt: number) {
+    const events: SingularityEvent[] = [];
+    this.singularities.update(dt, events);
+    for (const pull of this.singularities.pulls()) {
+      for (const drone of this.drones) {
+        if (!drone.active) continue;
+        const toward = pull.center.clone().sub(drone.position);
+        const d = toward.length();
+        if (d > pull.radius || d < 1e-3) continue;
+        if (drone.type !== 'carrier') {
+          toward.divideScalar(d);
+          const strength = pull.strength * (1 - 0.6 * (d / pull.radius));
+          drone.velocity.addScaledVector(toward, strength * dt);
+          drone.position.addScaledVector(toward, Math.min(d, strength * 0.25 * dt));
+        }
+        if (d < pull.crushRadius) this.damageDrone(drone, pull.damagePerSecond * dt);
+      }
+    }
+    for (const event of events) {
+      this.emit({ kind: 'singularity', position: event.position, formed: event.kind === 'formed' });
+      if (event.kind !== 'collapsed') continue;
+      this.effects.explode(event.position, new THREE.Vector3(), 1.4);
+      for (const drone of this.drones) {
+        if (drone.active && drone.position.distanceTo(event.position) < event.radius) this.damageDrone(drone, CONFIG.siege.singularity.finalBlast);
+      }
+    }
   }
 
   private remove(drone: HostileDrone) {

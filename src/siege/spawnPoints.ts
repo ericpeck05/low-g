@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config';
 import { MATERIALS } from '../world/city/kit';
-import { LANDING_PAD, MODULES_CENTER, TOWERS, towerPosition } from '../world/city/layout';
+import { BLOCKS, DISTRICT_START, LANDING_PAD, MODULES_CENTER, TOWERS, blockHeight, towerPosition } from '../world/city/layout';
+import { isSouthBearing } from './sections';
 import { terrainHeight } from '../world/terrain';
 import { glowTexture } from './glowTexture';
 
@@ -15,7 +16,7 @@ export type SpawnKind = 'roofVent' | 'hangar' | 'hatch' | 'skyDrop';
 
 export interface SpawnPoint {
   kind: SpawnKind;
-  /** Which part of the map it serves. Siege phase 5 splits the dome into sections behind doors. */
+  /** Which section of the map it's in (see sections.ts): it's only used once that section is open. */
   area: string;
   position: THREE.Vector3; // where the drone appears
   exit: THREE.Vector3; // the way it flies out
@@ -34,8 +35,8 @@ export class SpawnPoints {
   readonly points: SpawnPoint[] = [];
   /** The lights and flares, shown only during Drone Siege (the dark fixtures are always there). */
   readonly lights = new THREE.Group();
-  /** Areas whose spawn points are in use. Everything is open until Siege phase 5 adds doors. */
-  readonly unlocked = new Set(['dome', 'surface']);
+  /** Sections whose spawn points are in use (the plaza and the surface, plus each one bought). */
+  readonly unlocked = new Set<string>(['plaza', 'surface']);
   private frames: THREE.BufferGeometry[] = []; // light metal rims
   private openings: THREE.BufferGeometry[] = []; // the black holes inside them
   private time = 0;
@@ -74,7 +75,7 @@ export class SpawnPoints {
       const at = surface.clone().addScaledVector(inward, 0.35);
       this.frame(new THREE.TorusGeometry(1.9, 0.2, 8, 32), at, inward);
       this.opening(new THREE.CircleGeometry(1.8, 32), surface.clone().addScaledVector(inward, 0.3), inward);
-      add('roofVent', 'dome', surface.clone().addScaledVector(inward, 2.6), inward, this.ring(1.6, at, inward));
+      add('roofVent', 'plaza', surface.clone().addScaledVector(inward, 2.6), inward, this.ring(1.6, at, inward));
     }
 
     TOWERS.forEach((tower) => {
@@ -87,16 +88,28 @@ export class SpawnPoints {
         const strip = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.14, 0.14), glowMaterial());
         strip.position.copy(at).addScaledVector(normal, 0.68).setY(at.y + 1.25); // along the front of the lintel
         strip.lookAt(strip.position.clone().add(normal));
-        add('hangar', 'dome', at.clone().addScaledVector(normal, 1.6), normal.clone().setY(0.15), strip);
+        add('hangar', 'towers', at.clone().addScaledVector(normal, 1.6), normal.clone().setY(0.15), strip);
       } else {
         // Short towers: a hatch on top of the rooftop hut, opening upward.
         const at = new THREE.Vector3(p.x, tower.height + 2.42, p.z);
         const up = new THREE.Vector3(0, 1, 0);
         this.frame(new THREE.TorusGeometry(0.85, 0.11, 8, 24), at, up);
         this.opening(new THREE.CircleGeometry(0.8, 24), at.clone().setY(at.y + 0.01), up);
-        add('hatch', 'dome', at.clone().setY(at.y + 1.3), up, this.ring(0.68, at.clone().setY(at.y + 0.04), up));
+        add('hatch', 'towers', at.clone().setY(at.y + 1.3), up, this.ring(0.68, at.clone().setY(at.y + 0.04), up));
       }
     });
+
+    // Hatches on the roofs of some of the outer district's buildings.
+    for (const block of BLOCKS) {
+      if (!['Hab 1', 'Life support 1', 'Hab 8', 'Hab 3', 'Hab 4', 'Hab 5', 'Power'].includes(block.sign)) continue;
+      const b = THREE.MathUtils.degToRad(block.bearing);
+      const center = new THREE.Vector3(Math.sin(b), 0, Math.cos(b)).multiplyScalar(DISTRICT_START + block.depth / 2);
+      const at = center.setY(blockHeight(block.kind) + 0.03);
+      const up = new THREE.Vector3(0, 1, 0);
+      this.frame(new THREE.TorusGeometry(0.85, 0.11, 8, 24), at, up);
+      this.opening(new THREE.CircleGeometry(0.8, 24), at.clone().setY(at.y + 0.01), up);
+      add('hatch', isSouthBearing(block.bearing) ? 'south' : 'north', at.clone().setY(at.y + 1.3), up, this.ring(0.68, at.clone().setY(at.y + 0.04), up));
+    }
 
     // Out on the surface, drones drop in from high above (no air to slow them, so they
     // brake on their own thrusters).

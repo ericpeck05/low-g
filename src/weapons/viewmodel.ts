@@ -5,7 +5,7 @@ import type { Gun } from './gun';
 import { type GunModel, SUPPORT_GRIP } from './gunModel';
 import { buildHands } from './hands';
 import { buildRifle } from './rifleModel';
-import { buildSiegeGun } from './siegeGuns';
+import { buildSiegeGun, overclockLook } from './siegeGuns';
 import type { WeaponId } from './weaponSpec';
 
 // What the player's body is doing, for animating the gun.
@@ -38,8 +38,8 @@ export class Viewmodel {
   sprintBlend = 0; // 0 = gun up and ready, 1 = lowered for sprinting
 
   private rig = new THREE.Group(); // gun and hands together
-  private models = new Map<WeaponId, GunModel>();
-  private weapon: WeaponId = 'rifle';
+  private models = new Map<string, GunModel>(); // by weapon id ("+" on the end: its overclocked look)
+  private weapon = 'rifle';
   private model: GunModel;
   private leftHand: THREE.Group;
   private sun = new THREE.DirectionalLight(CONFIG.lighting.sunColor, 0);
@@ -68,13 +68,11 @@ export class Viewmodel {
       this.camera.updateProjectionMatrix();
     });
 
-    const builders: [WeaponId, () => GunModel][] = [
+    const siegeIds = ['sidearm', 'smg', 'scatter', 'carbine', 'rail', 'singularity', 'arc'] as const;
+    const builders: [string, () => GunModel][] = [
       ['rifle', buildRifle],
-      ['sidearm', () => buildSiegeGun('sidearm')],
-      ['smg', () => buildSiegeGun('smg')],
-      ['scatter', () => buildSiegeGun('scatter')],
-      ['carbine', () => buildSiegeGun('carbine')],
-      ['rail', () => buildSiegeGun('rail')],
+      ...siegeIds.map((id) => [id, () => buildSiegeGun(id)] as [string, () => GunModel]),
+      ...siegeIds.map((id) => [`${id}+`, () => overclockLook(buildSiegeGun(id))] as [string, () => GunModel]),
     ];
     for (const [id, build] of builders) {
       const model = build();
@@ -109,7 +107,8 @@ export class Viewmodel {
   }
 
   /** Show this gun in hand (the loadout decides when, after lowering the last one). */
-  setWeapon(id: WeaponId) {
+  setWeapon(weapon: WeaponId, overclocked = false) {
+    const id = overclocked ? `${weapon}+` : weapon;
     if (id === this.weapon) return;
     this.model.root.visible = false;
     this.model.flash.visible = false;
@@ -275,7 +274,7 @@ export class Viewmodel {
       if (p >= 0.1 && !this.magazineDropped) {
         this.magazineDropped = true;
         this.rig.updateMatrixWorld();
-        this.onMagazineDrop?.(m.magazine.matrixWorld.clone(), this.weapon);
+        this.onMagazineDrop?.(m.magazine.matrixWorld.clone(), this.weapon.replace("+", "") as WeaponId);
       }
       // The bolt locks back on an empty gun until the new magazine is in.
       if (p >= 0.1 && p < 0.7 && m.action && m.action.delay === 0) actionBack = 1;

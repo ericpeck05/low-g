@@ -4,7 +4,7 @@ import { domeCeiling } from './dome';
 import { Face, RECESS } from './facade';
 import type { GlassBatch } from './glass';
 import { MATERIALS, lightStrip, solidBox } from './kit';
-import { DISTRICT_START, RING_ROAD } from './layout';
+import { BLOCKS, type Block, DISTRICT_START, type Kind, RING_ROAD, blockHeight } from './layout';
 import { Bollards, type Greenery, LampPosts, bench, planter, rover } from './props';
 import { signPanel } from './signs';
 import type { RoomStyle, WindowBatch } from './windows';
@@ -14,38 +14,6 @@ import type { RoomStyle, WindowBatch } from './windows';
 // Each building is a solid box for collision and movement; what you see is built up
 // from real parts: shopfronts, windows into rooms, floor bands, parapets, canopies,
 // signs and rooftop machinery.
-
-type Kind = 'hab' | 'shops' | 'hydro' | 'utility';
-
-interface Block {
-  bearing: number; // degrees round the city where the middle of its front sits
-  width: number; // along the ring road
-  depth: number; // back toward the dome wall
-  kind: Kind;
-  sign: string;
-}
-
-// Two arcs of buildings, east and west, leaving the avenues to the airlocks clear.
-const BLOCKS: Block[] = [
-  { bearing: 17, width: 16, depth: 12, kind: 'shops', sign: 'Tranquility Café' },
-  { bearing: 34, width: 15, depth: 12, kind: 'hab', sign: 'Hab 1' },
-  { bearing: 52, width: 18, depth: 13, kind: 'hydro', sign: 'Hydroponics A' },
-  { bearing: 70, width: 14, depth: 12, kind: 'hab', sign: 'Hab 2' },
-  { bearing: 90, width: 20, depth: 12, kind: 'utility', sign: 'Life support 1' },
-  { bearing: 110, width: 14, depth: 12, kind: 'hab', sign: 'Hab 3' },
-  { bearing: 127, width: 16, depth: 12, kind: 'shops', sign: 'Mare Market' },
-  { bearing: 145, width: 18, depth: 13, kind: 'hydro', sign: 'Hydroponics B' },
-  { bearing: 163, width: 15, depth: 12, kind: 'hab', sign: 'Hab 4' },
-  { bearing: 197, width: 15, depth: 12, kind: 'shops', sign: 'Clinic' },
-  { bearing: 214, width: 15, depth: 12, kind: 'hab', sign: 'Hab 5' },
-  { bearing: 232, width: 18, depth: 13, kind: 'hydro', sign: 'Hydroponics C' },
-  { bearing: 250, width: 14, depth: 12, kind: 'hab', sign: 'Hab 6' },
-  { bearing: 270, width: 20, depth: 12, kind: 'utility', sign: 'Power' },
-  { bearing: 290, width: 14, depth: 12, kind: 'hab', sign: 'Hab 7' },
-  { bearing: 307, width: 16, depth: 12, kind: 'shops', sign: 'Outfitters' },
-  { bearing: 325, width: 15, depth: 12, kind: 'hab', sign: 'Hab 8' },
-  { bearing: 343, width: 15, depth: 12, kind: 'shops', sign: 'Noodle bar' },
-];
 
 const PARAPET = 0.9;
 
@@ -67,7 +35,7 @@ export function buildDistrict(scene: THREE.Object3D, world: RAPIER.World, window
     const lamp = curb.clone().addScaledVector(side, block.width / 2 - 1);
     lamps.add(world, lamp.x, lamp.z, Math.atan2(-out.x, -out.z));
     if (i % 2 === 0) {
-      const p = curb.clone().addScaledVector(side, -block.width / 2 + 2.2).addScaledVector(out, -0.2);
+      const p = curb.clone().addScaledVector(side, -block.width / 2 + 2.2).addScaledVector(out, 0.1);
       planter(scene, world, green, p.x, p.z, 3, 1.1, Math.atan2(side.x, side.z) + Math.PI / 2, false);
       const seat = curb.clone().addScaledVector(side, -block.width / 2 + 4.9).addScaledVector(out, 0.3);
       bench(scene, world, seat.x, seat.z, Math.atan2(-out.x, -out.z), 2.0);
@@ -116,7 +84,7 @@ const STYLE: Record<Exclude<Kind, 'hydro'>, { floors: number; ground: number; fl
 
 function building(scene: THREE.Object3D, world: RAPIER.World, windows: WindowBatch, lot: Lot, block: Block, index: number) {
   const style = STYLE[block.kind as Exclude<Kind, 'hydro'>];
-  const height = style.ground + style.floors * style.floorHeight;
+  const height = blockHeight(block.kind);
   // Never into the dome glass: check the back corners against the ceiling.
   const backCorner = Math.hypot(DISTRICT_START + lot.depth, lot.width / 2);
   if (domeCeiling(backCorner) < height + PARAPET + 2) console.warn(`District: ${block.sign} is too tall for its spot under the dome.`);
@@ -214,7 +182,7 @@ function utilityWall(face: Face, half: number, height: number, front: boolean) {
   const panels = Math.max(1, Math.floor((half * 2 - 1) / 3));
   for (let j = 0; j < panels; j++) {
     const s = -half + 0.5 + ((half * 2 - 1) * (j + 0.5)) / panels;
-    if (front && Math.abs(s) < 2.6) continue; // the door goes here
+    if (front && s > -2.6 && s < 6) continue; // the door goes here, and a Siege weapon station beside it
     face.box(MATERIALS.shadow, s - 1.1, s + 1.1, 1.2, height - 1.2, 0.02, 0.05);
     for (let y = 1.35; y < height - 1.3; y += 0.32) face.box(MATERIALS.trim, s - 1.05, s + 1.05, y, y + 0.06, 0.05, 0.16);
   }

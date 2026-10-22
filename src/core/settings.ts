@@ -8,6 +8,7 @@ export interface Settings {
   sensitivity: number; // radians of turn per pixel of mouse movement
   fov: number; // degrees, vertical field of view when not aiming
   volume: number; // 0 to 1
+  music: number; // 0 to 1, Drone Siege's music (on top of the volume)
   quality: Quality;
   showStats: boolean; // the F3 overlay: frame rate and movement numbers
 }
@@ -23,6 +24,7 @@ const DEFAULTS: Settings = {
   sensitivity: CONFIG.look.sensitivity,
   fov: CONFIG.camera.fov,
   volume: 0.8,
+  music: 0.7,
   quality: 'medium', // the 60 fps target for a normal laptop; High needs a strong graphics card
   showStats: false,
 };

@@ -4,7 +4,8 @@ import { mergeRigidParts } from '../core/mergeMeshes';
 import type { GunModel } from '../weapons/gunModel';
 import type { SiegeWeaponId } from '../weapons/weaponSpec';
 import { MATERIALS } from '../world/city/kit';
-import { RANGE, TOWERS, towerPosition } from '../world/city/layout';
+import { DISTRICT_START, RANGE, TOWERS, towerPosition } from '../world/city/layout';
+import type { AreaId } from './sections';
 import { plazaFace } from './spawnPoints';
 
 // Weapon stations on the city's walls, Drone Siege's answer to Zombies' wall buys: a
@@ -13,7 +14,7 @@ import { plazaFace } from './spawnPoints';
 
 export interface Station {
   weapon: SiegeWeaponId;
-  area: string; // which part of the map it's in (Siege phase 5 locks some away)
+  area: AreaId; // which section of the map it's in
   position: THREE.Vector3; // the middle of the board
   facing: THREE.Vector3; // straight out from the wall
 }
@@ -29,18 +30,20 @@ export class WeaponStations {
 
   /** build: makes a fresh model of a gun (the same builders the viewmodel uses). */
   constructor(scene: THREE.Scene, build: (id: SiegeWeaponId) => GunModel) {
-    // The cheap one by the range hall's door, the others on tower bases facing the plaza.
+    // The cheap one by the range hall's door in the plaza, two on tower bases facing the
+    // plaza, and the rail rifle out at the power plant in the north district.
     const t = 0.6; // the range hall's wall thickness
-    this.add('smg', 'dome', new THREE.Vector3(RANGE.xStart - t - 0.05, BOARD_HEIGHT, -5.8), new THREE.Vector3(-1, 0, 0), build);
+    this.add('smg', 'plaza', new THREE.Vector3(RANGE.xStart - t - 0.05, BOARD_HEIGHT, -5.8), new THREE.Vector3(-1, 0, 0), build);
     const onTower = (index: number, weapon: SiegeWeaponId) => {
       const tower = TOWERS[index];
       const p = towerPosition(tower);
       const { normal, distance } = plazaFace(p, tower.radius, tower.sides);
-      this.add(weapon, 'dome', p.clone().addScaledVector(normal, distance + 0.05).setY(BOARD_HEIGHT), normal, build);
+      this.add(weapon, 'towers', p.clone().addScaledVector(normal, distance + 0.05).setY(BOARD_HEIGHT), normal, build);
     };
     onTower(4, 'scatter'); // the tower at bearing 320
     onTower(0, 'carbine'); // bearing 40
-    onTower(2, 'rail'); // bearing 220, across the plaza from the start
+    // The power plant's front wall faces the center (+x), right of its door.
+    this.add('rail', 'north', new THREE.Vector3(-DISTRICT_START + 0.07, BOARD_HEIGHT, -4.3), new THREE.Vector3(1, 0, 0), build);
     scene.add(this.group);
     this.group.visible = false;
   }
@@ -68,7 +71,7 @@ export class WeaponStations {
     return best;
   }
 
-  private add(weapon: SiegeWeaponId, area: string, position: THREE.Vector3, facing: THREE.Vector3, build: (id: SiegeWeaponId) => GunModel) {
+  private add(weapon: SiegeWeaponId, area: AreaId, position: THREE.Vector3, facing: THREE.Vector3, build: (id: SiegeWeaponId) => GunModel) {
     const n = facing.clone().normalize();
     this.stations.push({ weapon, area, position: position.clone(), facing: n });
     const board = new THREE.Group();

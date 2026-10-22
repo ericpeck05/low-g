@@ -6,7 +6,7 @@ import { Input } from './core/input';
 import { createPhysicsWorld } from './core/physics';
 import { createComposer } from './core/postprocessing';
 import { createScene } from './core/scene';
-import { submitHighScore } from './core/highScores';
+import { submitHighScore, submitSiegeKills } from './core/highScores';
 import { Session, type Mode } from './core/session';
 import { QUALITY_PRESETS, type Quality, settings } from './core/settings';
 import { CameraEffects } from './player/cameraEffects';
@@ -25,6 +25,9 @@ import { SuitHud } from './ui/suitHud';
 import { type DroneHit, type SiegeEvent, type SiegePlayer, SiegeMode } from './siege/siege';
 import { WeaponStations } from './siege/stations';
 import { AlertLighting } from './siege/alertLighting';
+import { Progression } from './siege/progression';
+import { SiegeHud } from './ui/siegeHud';
+import { setAnnouncerVolume } from './audio/announcer';
 import type { HitResult } from './targets/target';
 import { Ejecta } from './weapons/ejecta';
 import { applySpread, castShot } from './weapons/hitscan';
@@ -34,7 +37,7 @@ import type { Gun } from './weapons/gun';
 import { Loadout } from './weapons/loadout';
 import { buildSiegeGun } from './weapons/siegeGuns';
 import { Tracers } from './weapons/tracers';
-import { type WeaponSpec, damageAt, rangeRifle, siegeWeapon } from './weapons/weaponSpec';
+import { type WeaponId, type WeaponSpec, damageAt, rangeRifle, siegeWeapon } from './weapons/weaponSpec';
 import { Viewmodel } from './weapons/viewmodel';
 import { createEnvironment } from './world/environment';
 import { Sun, sunDirection } from './world/lighting';
@@ -83,7 +86,7 @@ async function boot() {
     const push = new THREE.Vector3(0, -0.6, 0).add(player.velocity);
     ejecta.magazine(matrix, push, weapon);
   };
-  for (const id of ['sidearm', 'smg', 'scatter', 'carbine', 'rail'] as const) ejecta.addMagazineTemplate(id, viewmodel.modelFor(id).magazine);
+  for (const id of ['sidearm', 'smg', 'scatter', 'carbine', 'rail', 'singularity', 'arc'] as const) ejecta.addMagazineTemplate(id, viewmodel.modelFor(id).magazine);
   const tracers = new Tracers(scene);
   const toSun = sunDirection();
   const sunRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, toSun);
@@ -101,6 +104,7 @@ async function boot() {
   const hud = new Hud();
   const suitHud = new SuitHud(hud);
   const roundHud = new RoundHud(hud); // added after the suit readout, so it sits above it
+  const siegeHud = new SiegeHud(hud);
   await loading.step(0.71, 'RECORDING SOUNDS');
   const audio = new GameAudio();
   let lastReloadProgress = 0; // for timing reload sounds to the animation
@@ -113,8 +117,10 @@ async function boot() {
       if (session.mode === 'range' && session.state === 'playing') submitHighScore('range', scoring.score);
       session.state = 'menu';
       siege.stop();
+      progression.reset(false);
       suitHud.setActive(false);
       roundHud.setActive(false);
+      siegeHud.setActive(false);
       menu.showMain();
     },
   });
@@ -126,6 +132,8 @@ async function boot() {
     look.sensitivity = s.sensitivity;
     baseFov = s.fov;
     audio.setVolume(s.volume);
+    audio.setMusicVolume(s.music);
+    setAnnouncerVolume(s.volume);
     if (s.quality !== appliedQuality) {
       appliedQuality = s.quality;
       const q = QUALITY_PRESETS[s.quality];
@@ -149,11 +157,27 @@ async function boot() {
 
   // A warm light at the gun that flashes on each shot and lights up nearby walls.
   const muzzleLight = new THREE.PointLight(0xffb050, 0, 12);
-  const MUZZLE_LIGHT = { rifle: 14, sidearm: 10, smg: 8, scatter: 22, carbine: 14, rail: 26 }; // how bright, per gun
+  const MUZZLE_LIGHT: Record<WeaponId, number> = { rifle: 14, sidearm: 10, smg: 8, scatter: 22, carbine: 14, rail: 26, singularity: 18, arc: 16 }; // how bright, per gun
   const CASING_SIZE: Partial<Record<string, number>> = { sidearm: 0.75, scatter: 2 }; // shells are bigger than rifle cases
   scene.add(muzzleLight);
   // Swarm rounds turn the city's lights red (not the gun's flash or explosions).
   const alertLighting = new AlertLighting(scene, composer.setTint, [muzzleLight, siege.effects.light]);
+  // Drone Siege's sections, power, suit mods, Supply Drop, Overclock and power-ups.
+  const progression = new Progression({
+    scene,
+    world,
+    siege,
+    stations,
+    loadout,
+    player,
+    oxygen,
+    audio,
+    hud,
+    roundHud,
+    buildGun: buildSiegeGun,
+    keepLights: [muzzleLight, siege.effects.light],
+  });
+  composer.excludeFromAO(...progression.glowObjects);
 
   async function lockMouse() {
     audio.unlock(); // browsers only allow sound after a click, and this runs from one
@@ -175,6 +199,7 @@ async function boot() {
     // Drone Siege starts you with a sidearm and an empty slot; everything else, the rifle.
     loadout.equip(mode === 'siege' ? [siegeWeapon('sidearm'), null] : [rangeRifle()]);
     viewmodel.setWeapon(loadout.current.spec.id);
+    progression.reset(mode === 'siege');
     stations.setActive(mode === 'siege');
     oxygen.reset();
     // The oxygen run keeps you outside: the airlocks stay sealed.
@@ -184,6 +209,7 @@ async function boot() {
     targets.setActive(mode !== 'siege');
     suitHud.setActive(mode === 'siege');
     roundHud.setActive(mode === 'siege');
+    siegeHud.setActive(mode === 'siege');
     if (mode === 'siege') siege.start();
     else siege.stop();
     menu.hide();
@@ -214,6 +240,7 @@ async function boot() {
         if (event.special === 'normal') audio.roundStart();
         else audio.specialRound(event.special);
         roundHud.roundStarted(event.round, event.special);
+        progression.onRoundStart();
       } else if (event.kind === 'roundEnd') {
         audio.roundEnd();
         roundHud.roundEnded(event.round, event.special);
@@ -224,15 +251,18 @@ async function boot() {
       else if (event.kind === 'blast' || event.kind === 'weakPoint') audio.droneExplosion(event.position);
       else if (event.kind === 'beep') audio.kamikazeBeep(event.position);
       else if (event.kind === 'carrierDown') audio.carrierDown(event.position);
-      else if (event.kind === 'maxAmmo') {
-        // Every gun you carry: full magazine, full spares.
-        for (const gun of loadout.slots) gun?.refill();
-        audio.maxAmmo();
+      else if (event.kind === 'maxAmmo') progression.dropMaxAmmo(event.position, player.feet);
+      else if (event.kind === 'killed') progression.onKill(event.position);
+      else if (event.kind === 'singularity') {
+        if (event.formed) audio.singularityHum(event.position);
+        else audio.singularityCollapse(event.position);
       }
       else if (event.kind === 'playerHit') {
         audio.suitHit();
         suitHud.hit(event.from);
       } else if (event.kind === 'suitDestroyed' && session.state === 'playing') {
+        // Auto-Medic gets you back up once; otherwise that's the game.
+        if (progression.revive('suit')) continue;
         session.end('destroyed');
         endRun();
       }
@@ -269,8 +299,13 @@ async function boot() {
       if (wheel !== 0) loadout.cycle(Math.sign(wheel));
       if (!wasSwitching && loadout.switching) audio.weaponSwap();
       loadout.update(dt);
-      viewmodel.setWeapon(loadout.current.spec.id);
-      if (session.mode === 'siege') stationPrompt = useStation();
+      viewmodel.setWeapon(loadout.current.spec.id, loadout.current.spec.overclocked);
+      if (session.mode === 'siege') {
+        // Whatever you're standing at and facing: its offer on the visor, E to take it.
+        const spot = progression.nearest(player.feet, camera.getWorldDirection(new THREE.Vector3()));
+        stationPrompt = spot?.offer ?? null;
+        if (spot && input.wasPressed('KeyE')) spot.use();
+      }
     }
     const gun = loadout.current;
 
@@ -291,7 +326,10 @@ async function boot() {
       if (step) audio.footstep(step.hard, step.landing, step.strength);
       // These move colliders (targets, drones, airlock doors), so they go before the physics step.
       targets.update(dt, player.feet);
-      if (session.mode === 'siege') onSiegeEvents(siege.update(dt, siegePlayer()));
+      if (session.mode === 'siege') {
+        onSiegeEvents(siege.update(dt, siegePlayer()));
+        progression.update(dt, player.feet);
+      }
       for (const event of city.update(dt, player.feet)) {
         if (event.kind === 'doorMoving') audio.doorMoving(event.position);
         else if (event.kind === 'doorStopped') audio.doorStopped(event.position);
@@ -304,7 +342,8 @@ async function boot() {
       // Air: the dome and the airlock chambers are pressurized; everywhere else is vacuum.
       const feet = player.feet;
       inside = isInsideDome(feet) || city.airlocks.some((airlock) => airlock.inChamber(feet));
-      if (oxygen.update(dt, inside, session.drainScale)) outOfOxygen();
+      const drain = session.drainScale * (session.mode === 'siege' ? progression.oxygenDrain : 1);
+      if (oxygen.update(dt, inside, drain)) outOfOxygen();
 
       if (session.update(dt)) endRun();
     }
@@ -379,10 +418,18 @@ async function boot() {
       thrusting: player.jetpack.thrusting,
       exertion: player.jetpack.thrusting || player.sprinting ? 1 : 0,
       suitLow: playing && session.mode === 'siege' && siege.suit.low,
+      music: {
+        playing: playing && session.mode === 'siege',
+        fighting: siege.rounds.state === 'fighting',
+        round: siege.rounds.round,
+        special: siege.rounds.state === 'fighting' && siege.rounds.kind !== 'normal',
+        danger: siege.suit.low,
+      },
     });
     if (session.mode === 'siege') {
       suitHud.update(playing ? dt : 0, siege.suit, player.feet, look.yaw);
       roundHud.update(playing ? dt : 0, siege.rounds, siege.boss);
+      siegeHud.update({ powered: progression.power.on, mods: progression.mods.owned, timers: progression.powerUps.timers });
     }
     hud.update({
       dt,
@@ -429,6 +476,17 @@ async function boot() {
     if (session.mode === 'siege') siege.beginShot();
     audio.gunshot(spec.id);
 
+    // The Singularity Launcher fires a slow round instead of a hitscan shot.
+    if (spec.id === 'singularity') {
+      const muzzle = camera.localToWorld(viewmodel.muzzlePoint());
+      if (session.mode === 'siege') siege.launchSingularity(muzzle, applySpread(aim, spread), spec.overclocked, player.collider);
+      recoil.kick(gun.aimBlend, spec.recoil);
+      viewmodel.fire();
+      muzzleLight.position.copy(muzzle);
+      muzzleLight.intensity = MUZZLE_LIGHT[spec.id];
+      return;
+    }
+
     const droneHits: DroneHit[] = [];
     let targetHit: HitResult | null = null;
     let firstEnd: THREE.Vector3 | null = null;
@@ -439,6 +497,20 @@ async function boot() {
       firstEnd ??= ray.end;
     }
 
+    // The Arc Caster's lightning jumps on from the first drone it hits to others nearby.
+    const muzzleAt = camera.localToWorld(viewmodel.muzzlePoint());
+    let chainPoints = 0;
+    if (spec.id === 'arc' && session.mode === 'siege') {
+      const first = droneHits.find((h) => !h.blocked);
+      if (first) {
+        const chain = siege.chainLightning(first.index, spec.damage, CONFIG.siege.arc.chains + (spec.overclocked ? 2 : 0));
+        chainPoints = chain.points;
+        siege.zap([muzzleAt, ...chain.path]);
+      } else if (firstEnd) {
+        siege.zap([muzzleAt, firstEnd]);
+      }
+    }
+
     // Hostile drones: one marker for the shot, points earned, and a blast for each kill.
     if (droneHits.length > 0) {
       const core = droneHits.some((h) => h.core);
@@ -447,7 +519,7 @@ async function boot() {
       hud.flashHitmarker(core);
       for (const kill of kills) audio.droneExplosion(kill.position);
       const coreKill = kills.some((h) => h.core);
-      const points = droneHits.reduce((sum, h) => sum + h.points, 0);
+      const points = droneHits.reduce((sum, h) => sum + h.points, 0) + chainPoints;
       hud.showPoints(points, kills.length > 1 ? `×${kills.length}` : coreKill ? 'CORE KILL' : kills.length ? 'KILL' : '', kills.length > 0);
     }
     const anyDrone = droneHits[0];
@@ -466,7 +538,9 @@ async function boot() {
     muzzleLight.position.copy(muzzle);
     muzzleLight.intensity = MUZZLE_LIGHT[spec.id];
     // Energy weapons draw their shot; powder guns throw burning grains and spent cases.
-    if (spec.id === 'smg' || spec.id === 'rail') {
+    if (spec.id === 'arc') {
+      // (its lightning is already drawn)
+    } else if (spec.id === 'smg' || spec.id === 'rail') {
       if (firstEnd) tracers.fire(spec.id === 'rail' ? 'rail' : 'plasma', muzzle, firstEnd);
     } else {
       impacts.muzzleSparks(muzzle, aim);
@@ -503,6 +577,13 @@ async function boot() {
         for (const handle of drone.colliders) passedThrough.add(handle);
         continue;
       }
+      // A Drone Siege barrier: the shot splashes on it.
+      if (session.mode === 'siege' && progression.sections.isBarrier(hit.collider)) {
+        impacts.metalSparks(hit.point, hit.normal, 6);
+        audio.barrierHit(hit.point);
+        end = hit.point;
+        break;
+      }
       target = targets.tryHit(hit.collider, hit.point, direction);
       impacts.spawn(hit.point, hit.normal);
       if (target) audio.targetBreak(hit.point, target.label === 'DRONE');
@@ -511,31 +592,6 @@ async function boot() {
       break;
     }
     return { drones, target, end };
-  }
-
-  // Drone Siege: standing at a weapon station, what's on offer, and buying it with E.
-  function useStation(): SiegeReadout['prompt'] {
-    const station = stations.nearest(player.feet, camera.getWorldDirection(new THREE.Vector3()));
-    if (!station) return null;
-    const spec = siegeWeapon(station.weapon);
-    const owned = loadout.owns(spec.id);
-    const price = owned ? spec.ammoPrice : spec.price;
-    if (input.wasPressed('KeyE')) {
-      if (owned?.full) {
-        hud.showToast('AMMO ALREADY FULL');
-      } else if (!siege.spend(price)) {
-        audio.denied();
-        hud.showToast('NOT ENOUGH POINTS');
-      } else {
-        audio.purchase();
-        if (owned) owned.refill();
-        else {
-          loadout.give(spec);
-          audio.weaponSwap();
-        }
-      }
-    }
-    return { text: owned ? `${spec.name} AMMO` : spec.name, price, affordable: siege.points >= price };
   }
 
   // Reload sounds, timed to the animation: magazine out, new one in, bolt slams home.
@@ -567,6 +623,7 @@ async function boot() {
   }
 
   function outOfOxygen() {
+    if (session.mode === 'siege' && progression.revive('oxygen')) return;
     if (session.mode === 'range') {
       // Practice is forgiving: you black out and wake up back in the plaza.
       placePlayer(CONFIG.scoring.rangeStart);
@@ -584,7 +641,10 @@ async function boot() {
     const mode = session.mode;
     const value = mode === 'oxygenRun' ? Math.floor(session.elapsed) : mode === 'siege' ? siege.rounds.round : scoring.score;
     const newBest = submitHighScore(mode, value);
-    const siegeStats = mode === 'siege' ? { round: siege.rounds.round, kills: siege.kills, coreKills: siege.coreKills } : undefined;
+    const siegeStats =
+      mode === 'siege'
+        ? { round: siege.rounds.round, kills: siege.kills, coreKills: siege.coreKills, weakPoints: siege.weakPointKills, points: siege.pointsEarned, mostKills: submitSiegeKills(siege.kills) }
+        : undefined;
     menu.showResults({ mode, reason: session.endReason ?? 'timeUp', scoring, survived: session.elapsed, newBest, siege: siegeStats });
     document.exitPointerLock();
   }
@@ -603,10 +663,12 @@ async function boot() {
   await loading.step(0.94, 'PRESSURIZING THE DOME');
   siege.showForWarmUp(true);
   stations.setActive(true);
+  progression.showForWarmUp(true);
   tick(0);
   composer.render(0, true);
   siege.showForWarmUp(false);
   stations.setActive(false);
+  progression.showForWarmUp(false);
 
   // The game loop runs once per screen refresh.
   // Cap the frame time so a stall can't make us skip through walls.
@@ -623,7 +685,7 @@ async function boot() {
   // lowg.tick(1 / 60) advances one frame by hand, which is handy for testing.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      lowg: { renderer, scene, composer, audio, ejecta, input, look, player, camera, world, city, oxygen, recoil, viewmodel, impacts, targets, scoring, session, menu, settings, sun, rocks, sky, siege, suitHud, roundHud, hud, loadout, stations, tracers, tick, startRun },
+      lowg: { renderer, scene, composer, audio, ejecta, input, look, player, camera, world, city, oxygen, recoil, viewmodel, impacts, targets, scoring, session, menu, settings, sun, rocks, sky, siege, suitHud, roundHud, siegeHud, hud, loadout, stations, progression, tracers, tick, startRun },
     });
   }
 }

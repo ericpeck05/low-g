@@ -83,13 +83,16 @@ export class WindowBatch {
 
 let shared: THREE.MeshStandardMaterial | null = null;
 
+/** How brightly the rooms are lit (Drone Siege turns it down while the city's power is off). */
+export const roomLight = { value: CONFIG.city.roomBrightness };
+
 /** The glass: dark and glossy, with the room behind it added as light coming through. */
 export function windowMaterial() {
   if (shared) return shared;
   const material = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.05, metalness: 0 });
   addPatch(material, 'interiorWindows', (shader) => {
     shader.uniforms.uLgLitShare = { value: CONFIG.city.litWindows };
-    shader.uniforms.uLgRoomLight = { value: CONFIG.city.roomBrightness };
+    shader.uniforms.uLgRoomLight = roomLight;
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',

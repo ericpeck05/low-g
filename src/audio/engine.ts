@@ -72,6 +72,11 @@ export class AudioEngine {
     this.applyOutside();
   }
 
+  /** Somewhere to plug in sound that isn't part of the world (music): it still fades out on pause. */
+  get gameOutput(): AudioNode {
+    return this.game;
+  }
+
   setVolume(volume: number) {
     this.master.gain.setTargetAtTime(volume, this.context.currentTime, 0.02);
   }

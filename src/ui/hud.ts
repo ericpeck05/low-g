@@ -39,8 +39,8 @@ export interface SiegeReadout {
   kills: number;
   slots: (Gun | null)[];
   slot: number; // which one is in hand
-  /** Near a weapon station: what it offers and whether you can afford it. */
-  prompt: { text: string; price: number; affordable: boolean } | null;
+  /** At something you can use (a station, a terminal...): what it offers, its price, and why not if you can't. */
+  prompt: { text: string; price: number | null; affordable: boolean; note?: string } | null;
 }
 
 const COMPASS_PX_PER_DEGREE = 3;
@@ -210,6 +210,8 @@ export class Hud {
     this.updateClock(s);
     this.updateEnvironment(s);
     this.updateOxygen(s);
+    // In Drone Siege the air only matters outside: the oxygen readout shows when you're out or not full.
+    this.el.oxygen.style.display = s.mode === 'siege' && s.inside && s.oxygen.fraction > 0.999 ? 'none' : '';
     this.updateFuel(s);
     this.updateScore(s);
     this.updateAmmo(s);
@@ -353,9 +355,9 @@ export class Hud {
       this.el.slots.innerHTML = slots;
     }
     const prompt = siege?.prompt;
-    const html = prompt
-      ? `PRESS E · ${prompt.text} · <span class="${prompt.affordable ? 'price' : 'price short'}">${prompt.price}</span>`
-      : '';
+    const price = prompt && prompt.price !== null ? ` · <span class="${prompt.affordable ? 'price' : 'price short'}">${prompt.price}</span>` : '';
+    const note = prompt?.note ? ` · <span class="note">${prompt.note}</span>` : '';
+    const html = prompt ? `PRESS E · ${prompt.text}${price}${note}` : '';
     if (html !== this.shown.prompt) {
       this.shown.prompt = html;
       this.el.prompt.innerHTML = html;

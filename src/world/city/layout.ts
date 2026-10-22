@@ -30,6 +30,47 @@ export const PLAZA_RADIUS = 16;
 export const RING_ROAD = { inner: 59.5, outer: 65.5 };
 export const DISTRICT_START = 67.5; // the outer buildings start this far from the center
 
+export type Kind = 'hab' | 'shops' | 'hydro' | 'utility';
+
+export interface Block {
+  bearing: number; // degrees round the city where the middle of its front sits
+  width: number; // along the ring road
+  depth: number; // back toward the dome wall
+  kind: Kind;
+  sign: string;
+}
+
+// Two arcs of buildings, east and west, leaving the avenues to the airlocks clear.
+export const BLOCKS: Block[] = [
+  { bearing: 17, width: 16, depth: 12, kind: 'shops', sign: 'Tranquility Café' },
+  { bearing: 34, width: 15, depth: 12, kind: 'hab', sign: 'Hab 1' },
+  { bearing: 52, width: 18, depth: 13, kind: 'hydro', sign: 'Hydroponics A' },
+  { bearing: 70, width: 14, depth: 12, kind: 'hab', sign: 'Hab 2' },
+  { bearing: 90, width: 20, depth: 12, kind: 'utility', sign: 'Life support 1' },
+  { bearing: 110, width: 14, depth: 12, kind: 'hab', sign: 'Hab 3' },
+  { bearing: 127, width: 16, depth: 12, kind: 'shops', sign: 'Mare Market' },
+  { bearing: 145, width: 18, depth: 13, kind: 'hydro', sign: 'Hydroponics B' },
+  { bearing: 163, width: 15, depth: 12, kind: 'hab', sign: 'Hab 4' },
+  { bearing: 197, width: 15, depth: 12, kind: 'shops', sign: 'Clinic' },
+  { bearing: 214, width: 15, depth: 12, kind: 'hab', sign: 'Hab 5' },
+  { bearing: 232, width: 18, depth: 13, kind: 'hydro', sign: 'Hydroponics C' },
+  { bearing: 250, width: 14, depth: 12, kind: 'hab', sign: 'Hab 6' },
+  { bearing: 270, width: 20, depth: 12, kind: 'utility', sign: 'Power' },
+  { bearing: 290, width: 14, depth: 12, kind: 'hab', sign: 'Hab 7' },
+  { bearing: 307, width: 16, depth: 12, kind: 'shops', sign: 'Outfitters' },
+  { bearing: 325, width: 15, depth: 12, kind: 'hab', sign: 'Hab 8' },
+  { bearing: 343, width: 15, depth: 12, kind: 'shops', sign: 'Noodle bar' },
+];
+
+/** How tall a district building of this kind is, to its roof (greenhouses: to the top of the vault). */
+export function blockHeight(kind: Kind, depth = 12) {
+  if (kind === 'hab') return 4 + 2 * 3.6;
+  if (kind === 'shops') return 4.4 + 3.8;
+  if (kind === 'utility') return 5 + 4;
+  return 1.2 + depth / 2;
+}
+
+
 // The indoor shooting range: a long hall east of the plaza.
 export const RANGE = { xStart: 26, xEnd: 64, halfWidth: 8, height: 7 };
 

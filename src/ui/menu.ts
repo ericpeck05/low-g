@@ -1,4 +1,4 @@
-import { clearHighScores, formatTime, loadHighScores } from '../core/highScores';
+import { bestSiegeKills, clearHighScores, formatTime, loadHighScores } from '../core/highScores';
 import { MODE_NAMES, type EndReason, type Mode } from '../core/session';
 import { LIMITS, QUALITY_PRESETS, type Quality, settings } from '../core/settings';
 import type { Scoring } from '../targets/scoring';
@@ -12,7 +12,7 @@ const MODE_BLURBS: Record<Mode, string> = {
   range: 'Free practice around the city. No timer. Run out of air outside and you wake up back in the plaza.',
   timeTrial: '60 seconds. Highest score wins. Going outside costs oxygen.',
   oxygenRun: 'Locked out on the surface. Every hit buys air, and the air goes faster the longer you last.',
-  siege: 'Rounds of hostile drones that shoot back, more and tougher each round. Dodge their red plasma bolts and hit the glowing core. Survive as many rounds as you can.',
+  siege: 'Rounds of hostile drones that shoot back. Earn points to buy guns, open the city section by section, get the power back on out on the surface, install suit mods and Overclock your weapons. Survive as many rounds as you can.',
 };
 
 const CONTROLS: [string, string][] = [
@@ -25,6 +25,8 @@ const CONTROLS: [string, string][] = [
   ['Hold space', 'Jetpack (in the air)'],
   ['Shift', 'Sprint'],
   ['C', 'Crouch'],
+  ['E', 'Use, buy (Drone Siege)'],
+  ['1  2  or wheel', 'Switch weapon (Drone Siege)'],
   ['[  ]', 'Mouse sensitivity'],
   ['F3', 'Frame rate and stats'],
   ['Esc', 'Pause'],
@@ -36,7 +38,7 @@ export interface RunSummary {
   scoring: Scoring;
   survived: number; // seconds
   newBest: boolean;
-  siege?: { round: number; kills: number; coreKills: number }; // Drone Siege only
+  siege?: { round: number; kills: number; coreKills: number; weakPoints: number; points: number; mostKills: boolean }; // Drone Siege only
 }
 
 const END_TITLES: Record<EndReason, string> = {
@@ -106,7 +108,8 @@ export class Menu {
     const best = loadHighScores();
     const cards = (Object.keys(MODE_NAMES) as Mode[])
       .map((mode) => {
-        const record = best[mode] ? `BEST ${recordText(mode, best[mode])}` : 'NO RECORD YET';
+        const kills = mode === 'siege' && bestSiegeKills() ? ` · ${bestSiegeKills()} KILLS` : '';
+        const record = best[mode] ? `BEST ${recordText(mode, best[mode])}${kills}` : 'NO RECORD YET';
         return `<button class="mode" data-start="${mode}">
           <span class="title">${MODE_NAMES[mode]}</span>
           <span class="blurb">${MODE_BLURBS[mode]}</span>
@@ -132,6 +135,7 @@ export class Menu {
         ${this.slider('sensitivity', 'MOUSE SENSITIVITY', LIMITS.sensitivity.min * 1000, LIMITS.sensitivity.max * 1000, 0.1, s.sensitivity * 1000, (v) => v.toFixed(1))}
         ${this.slider('fov', 'FIELD OF VIEW', LIMITS.fov.min, LIMITS.fov.max, 1, s.fov, (v) => `${v.toFixed(0)}°`)}
         ${this.slider('volume', 'VOLUME', 0, 100, 1, s.volume * 100, (v) => `${v.toFixed(0)}%`)}
+        ${this.slider('music', 'MUSIC (DRONE SIEGE)', 0, 100, 1, s.music * 100, (v) => `${v.toFixed(0)}%`)}
         <div class="setting">
           <div class="top"><span>GRAPHICS QUALITY</span><span class="now">${QUALITY_PRESETS[s.quality].label}</span></div>
           <div class="choices">${quality}</div>
@@ -155,9 +159,10 @@ export class Menu {
         if (input.name === 'sensitivity') settings.set({ sensitivity: v / 1000 });
         if (input.name === 'fov') settings.set({ fov: v });
         if (input.name === 'volume') settings.set({ volume: v / 100 });
+        if (input.name === 'music') settings.set({ music: v / 100 });
         readout.textContent = input.dataset.unit === 'deg' ? `${v}°` : input.dataset.unit === 'pct' ? `${v}%` : v.toFixed(1);
       });
-      input.dataset.unit = input.name === 'fov' ? 'deg' : input.name === 'volume' ? 'pct' : 'num';
+      input.dataset.unit = input.name === 'fov' ? 'deg' : input.name === 'volume' || input.name === 'music' ? 'pct' : 'num';
     });
   }
 
@@ -168,7 +173,7 @@ export class Menu {
         const value = best[mode] ? recordText(mode, best[mode]) : '-';
         return `<tr><td>${MODE_NAMES[mode]}</td><td class="big">${value}</td></tr>`;
       })
-      .join('');
+      .join('') + `<tr><td>DRONE SIEGE · MOST KILLS</td><td class="big">${bestSiegeKills() || '-'}</td></tr>`;
     this.render('scores', 'side', `
       <h2>HIGH SCORES</h2>
       <table>${rows}</table>
@@ -218,8 +223,9 @@ export class Menu {
       rows.push(
         ['DRONES DESTROYED', String(run.siege.kills)],
         ['CORE KILLS', String(run.siege.coreKills)],
+        ['WEAK POINT KILLS', String(run.siege.weakPoints)],
+        ['POINTS EARNED', run.siege.points.toLocaleString('en-US')],
         ['ACCURACY', accuracyText],
-        ['HITS', `${scoring.shotsHit} / ${scoring.shotsFired}`],
       );
     } else {
       rows.push(
@@ -234,6 +240,7 @@ export class Menu {
       <h2>${END_TITLES[run.reason]}</h2>
       <div class="hint">${MODE_NAMES[run.mode]}</div>
       ${run.newBest ? '<div class="new-best">NEW BEST</div>' : ''}
+      ${run.siege?.mostKills ? '<div class="new-best">MOST KILLS YET</div>' : ''}
       <table>${rows.map(([a, b]) => `<tr><td>${a}</td><td class="big">${b}</td></tr>`).join('')}</table>
       <div class="buttons">
         <button class="primary" data-start="${run.mode}">PLAY AGAIN</button>
