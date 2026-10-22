@@ -122,8 +122,9 @@ export class SpawnPoints {
   }
 
   /** Choose where the next drone comes in: a free point on your side of the dome, near-ish to you. */
-  pick(player: THREE.Vector3, playerInside: boolean) {
-    const [min, max] = CONFIG.siege.rounds.spawnRange;
+  pick(player: THREE.Vector3, playerInside: boolean, nearest?: number) {
+    const [usualMin, max] = CONFIG.siege.rounds.spawnRange;
+    const min = nearest ?? usualMin;
     const usable = this.points.filter(
       (p) => this.unlocked.has(p.area) && p.inside === playerInside && !p.warning && p.cooldown <= 0,
     );

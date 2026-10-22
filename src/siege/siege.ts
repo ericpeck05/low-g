@@ -299,7 +299,9 @@ export class SiegeMode {
 
   /** Bring in one drone: light up a spawn point, then send it out. */
   sendDrone(player: SiegePlayer, type: DroneType, inside = isInsideDome(player.feet)) {
-    const point = this.spawnPoints.pick(player.feet, inside);
+    // Kamikazes come from farther off, so there's time to see and shoot them.
+    const nearest = type === 'kamikaze' ? CONFIG.siege.special.swarmSpawnMin : undefined;
+    const point = this.spawnPoints.pick(player.feet, inside, nearest);
     if (!point) {
       this.rounds.onSpawnFailed(type);
       return;

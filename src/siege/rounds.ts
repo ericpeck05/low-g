@@ -34,7 +34,10 @@ export function dronesInRound(n: number, kind: RoundKind = 'normal') {
 /** The most drones flying at once in round n. */
 export function maxAlive(n: number, kind: RoundKind = 'normal') {
   const r = rounds();
-  if (kind === 'swarm') return Math.min(CONFIG.siege.maxDrones, CONFIG.siege.special.swarmAlive);
+  if (kind === 'swarm') {
+    const [base, perRound] = CONFIG.siege.special.swarmAlive;
+    return Math.min(CONFIG.siege.maxDrones, Math.round(base + perRound * n));
+  }
   return Math.min(CONFIG.siege.maxDrones, Math.round(r.baseAlive + r.alivePerRound * (n - 1)));
 }
 
@@ -58,9 +61,11 @@ export function droneStats(n: number, type: DroneType): DroneStats {
   const base = CONFIG.siege[type];
   // A carrier's own health doesn't matter: its weak points each have this much.
   const health = type === 'carrier' ? CONFIG.siege.carrier.weakPointHealth : base.health;
+  // Kamikazes toughen more slowly than the rest.
+  const growth = type === 'kamikaze' ? CONFIG.siege.kamikaze.healthGrowth : 1;
   return {
     type,
-    health: Math.round(health * healthScale(n)),
+    health: Math.round(health * (1 + (healthScale(n) - 1) * growth)),
     fireRate: Math.min(r.maxFireRate, 1 + r.fireRatePerRound * (n - 1)),
     aimSpread: base.aimSpread * Math.max(r.minSpread, 1 - r.spreadPerRound * (n - 1)),
     aimLead: Math.min(r.maxLead, base.aimLead + r.leadPerRound * (n - 1)),

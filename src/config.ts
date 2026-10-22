@@ -349,7 +349,7 @@ export const CONFIG = {
       dronesGrowth: 0.15,
       // Most drones flying at once in round n (never more than maxDrones).
       baseAlive: 4,
-      alivePerRound: 2,
+      alivePerRound: 1,
       spawnInterval: 2.2, // seconds between arrivals in round 1...
       spawnIntervalShrink: 0.93, // ...multiplied by this each round...
       minSpawnInterval: 0.5, // ...down to this
@@ -381,9 +381,10 @@ export const CONFIG = {
     // Special rounds, like Zombies' dog rounds and boss waves.
     special: {
       swarmGap: [5, 7], // a swarm round comes every 5 to 7 rounds (the first in round 5 to 7)
-      swarmDrones: [10, 2.2], // kamikazes in a swarm round: base + per round × round number
-      swarmAlive: 10, // most kamikazes flying at once
-      swarmInterval: 0.45, // seconds between them arriving
+      swarmDrones: [4, 0.9], // kamikazes in a swarm round: base + per round × round number (9 in round 5)
+      swarmAlive: [2, 0.2], // most flying at once: base + per round × round number (3 in round 5, 4 by round 10)
+      swarmInterval: 1.6, // seconds between them arriving
+      swarmSpawnMin: 25, // meters: kamikazes come out of spawn points at least this far away, so you see them coming
       carrierEvery: 10, // a carrier (the boss) leads every 10th round...
       carrierEscort: 0.5, // ...with this share of the round's usual drones
     },
@@ -451,11 +452,12 @@ export const CONFIG = {
 
     // Swarm rounds only: small, fast, and they fly straight at you and blow up.
     kamikaze: {
-      health: 35, speed: 11, acceleration: 14, range: [0, 0], height: [0, 1], strafeSpeed: 0,
+      health: 22, speed: 7, acceleration: 10, range: [0, 0], height: [0, 1], strafeSpeed: 0, // a little slower than you sprint
+      healthGrowth: 0.5, // gets tougher round by round at half the rate of other drones (one sidearm shot until round 10)
       fireInterval: [99, 99], telegraph: 0, aimSpread: 0, aimLead: 0, sightRange: 80,
       triggerDistance: 1.6, // meters from you it detonates
       blastRadius: 3, // meters
-      damage: 28, // when it reaches you; less if it goes off farther away
+      damage: 20, // when it reaches you; less if it goes off farther away
     },
 
     // The boss: a big armored drone that launches scouts from its bay. Shots barely
