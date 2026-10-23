@@ -4,7 +4,7 @@ import { add, filter, make, noise, ping, seconds, thump, zap } from './synth';
 // Supply Drop, Overclock and power-ups. Made from the same building blocks as the rest.
 
 /** A soft tone with a quick attack and an exponential fade, added into `out`. */
-function tone(out: Float32Array, rate: number, start: number, freq: number, length: number, gain: number, decay: number, shape: 'sine' | 'tri' = 'sine') {
+export function tone(out: Float32Array, rate: number, start: number, freq: number, length: number, gain: number, decay: number, shape: 'sine' | 'tri' = 'sine') {
   const begin = seconds(start, rate);
   for (let i = 0; i < seconds(length, rate) && begin + i < out.length; i++) {
     const t = i / rate;
@@ -15,7 +15,7 @@ function tone(out: Float32Array, rate: number, start: number, freq: number, leng
 }
 
 /** Notes played one after another (a jingle). */
-function jingle(out: Float32Array, rate: number, notes: number[], step: number, length = 0.5, decay = 0.18) {
+export function jingle(out: Float32Array, rate: number, notes: number[], step: number, length = 0.5, decay = 0.18) {
   notes.forEach((freq, k) => {
     tone(out, rate, k * step, freq, length, 0.32, decay, 'tri');
     tone(out, rate, k * step, freq * 2, length, 0.08, decay * 0.6);

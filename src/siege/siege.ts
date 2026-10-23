@@ -112,6 +112,9 @@ export class SiegeMode {
   oneShot = false;
   weakPointKills = 0;
 
+  /** Rounds run the drones (Drone Siege). Salvage Run turns them off and drops drones itself. */
+  autoRounds = true;
+
   /** Ways through the dome that are sealed off right now (set by the sections: barriers that are up). */
   routeBlocked: (a: THREE.Vector3, b: THREE.Vector3) => boolean = () => false;
 
@@ -269,12 +272,12 @@ export class SiegeMode {
     const inside = isInsideDome(player.feet);
 
     // The rounds: when to start one, and when the next drone comes in.
-    for (const event of this.rounds.update(dt, this.alive + this.arrivals.length)) {
+    for (const event of this.autoRounds ? this.rounds.update(dt, this.alive + this.arrivals.length) : []) {
       this.emit(event);
       // Clearing a swarm round earns a Max Ammo.
       if (event.kind === 'roundEnd' && event.special === 'swarm') this.emit({ kind: 'maxAmmo', position: this.lastKill.clone() });
     }
-    if (this.rounds.wantsSpawn) this.sendDrone(player, this.rounds.wantsSpawn, inside);
+    if (this.autoRounds && this.rounds.wantsSpawn) this.sendDrone(player, this.rounds.wantsSpawn, inside);
     this.spawnPoints.update(dt);
     this.updateArrivals(dt, player);
 
@@ -334,6 +337,28 @@ export class SiegeMode {
     this.spawnPoints.warn(point);
     this.arrivals.push({ point, timer: CONFIG.siege.rounds.spawnWarning, stats: droneStats(Math.max(1, this.rounds.round), type) });
     this.emit({ kind: 'spawnWarning', position: point.position.clone() });
+  }
+
+  /** Drop a drone in from high above `position` (Salvage Run). Returns false if no drop point was free. */
+  dropDrone(position: THREE.Vector3, type: DroneType, round: number) {
+    const point = this.spawnPoints.roaming(position, new THREE.Vector3(0, -1, 0));
+    if (!point) return false;
+    this.spawnPoints.warn(point);
+    this.arrivals.push({ point, timer: CONFIG.siege.rounds.spawnWarning, stats: droneStats(round, type) });
+    this.emit({ kind: 'spawnWarning', position: point.position.clone() });
+    return true;
+  }
+
+  /** Drones flying plus those about to come out of a drop. */
+  get incoming() {
+    return this.alive + this.arrivals.length;
+  }
+
+  /** Every drone gives up and leaves, and no more come out (Salvage Run: you made it inside). */
+  recallAll() {
+    for (const drone of this.drones) if (drone.active) this.recall(drone);
+    for (const arrival of this.arrivals) this.spawnPoints.release(arrival.point);
+    this.arrivals = [];
   }
 
   /** Testing (F4 menu, dev tools): a drone of any type, out of the nearest spawn point now. */
@@ -440,7 +465,7 @@ export class SiegeMode {
     }
   }
 
-  private hurtPlayer(damage: number, from: THREE.Vector3) {
+  hurtPlayer(damage: number, from: THREE.Vector3) {
     this.emit({ kind: 'playerHit', damage, from: from.clone() });
     if (this.suit.damage(damage)) this.emit({ kind: 'suitDestroyed' });
   }

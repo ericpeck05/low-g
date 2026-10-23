@@ -29,7 +29,8 @@ export interface HudState {
   mouse: { x: number; y: number };
   showStats: boolean;
   frameTime: number; // seconds the last frame really took (dt is capped, this isn't)
-  siege: SiegeReadout | null; // Drone Siege's points, weapon slots and buy prompt
+  siege: SiegeReadout | null; // Drone Siege's points, weapon slots and buy prompt (Salvage Run uses its slots and prompt)
+  salvage: SalvageReadout | null; // Salvage Run's haul and storm clock
   render: { calls: number; triangles: number; width: number; height: number; quality: string };
 }
 
@@ -39,8 +40,21 @@ export interface SiegeReadout {
   kills: number;
   slots: (Gun | null)[];
   slot: number; // which one is in hand
-  /** At something you can use (a station, a terminal...): what it offers, its price, and why not if you can't. */
-  prompt: { text: string; price: number | null; affordable: boolean; note?: string } | null;
+  /** At something you can use (a station, a terminal...): what it offers, its price, and why not if you can't. hold: E is held, not pressed. */
+  prompt: { text: string; price: number | null; affordable: boolean; note?: string; hold?: boolean } | null;
+}
+
+/** Salvage Run's readouts in the HUD's own panels. */
+export interface SalvageReadout {
+  banked: number;
+  carried: number;
+  load: string; // LIGHT, MEDIUM, HEAVY or OVERLOADED
+  burden: number; // 0 to 1: how far toward the most a load can slow you
+  caches: number; // opened
+  cachesTotal: number;
+  kills: number;
+  timeLeft: number; // seconds to the storm
+  stormHit: boolean;
 }
 
 const COMPASS_PX_PER_DEGREE = 3;
@@ -126,7 +140,7 @@ export class Hud {
       'sway:.hud-sway', 'strip:.compass .strip', 'timer:.timer', 'timerLabel:.timer-label',
       'status:.status', 'where:.where', 'pressure:.pressure',
       'oxygen:.oxygen', 'o2:.o2', 'o2sub:.o2sub', 'fuel:.fuel', 'fuelpct:.fuelpct',
-      'scoreLabel:.score-label', 'points:.points', 'combo:.combo', 'meter:.meter div', 'accuracy:.accuracy',
+      'score:.hud-right .score', 'scoreLabel:.score-label', 'points:.points', 'combo:.combo', 'meter:.meter div', 'accuracy:.accuracy',
       'ammo:.ammo', 'weapon:.ammo .weapon', 'rounds:.rounds', 'pips:.pips', 'state:.state', 'reload:.reload div', 'slots:.slots', 'prompt:.prompt',
       'crosshair:.crosshair', 'l:.crosshair .l', 'r:.crosshair .r', 't:.crosshair .t', 'b:.crosshair .b',
       'hitmarker:.hitmarker', 'popups:.popups', 'warning:.warning', 'toast:.toast', 'hypoxia:.hypoxia', 'scope:.scope', 'stats:.stats',
@@ -154,6 +168,19 @@ export class Hud {
   /** Add a readout panel above oxygen (for a mode's own readouts, like suit integrity). */
   addPanel(panel: HTMLElement) {
     this.root.querySelector('.hud-left .stack')!.prepend(panel);
+  }
+
+  /** Add a strip just under the compass (it moves with the visor). */
+  addUnderCompass(element: HTMLElement) {
+    this.root.querySelector('.hud-top .compass')!.after(element);
+  }
+
+  /** A quick pulse on the score panel (Salvage Run: a haul banked). */
+  flashScore() {
+    const panel = this.root.querySelector('.hud-right .score')!;
+    panel.classList.remove('flash');
+    void (panel as HTMLElement).offsetWidth; // restart the animation
+    panel.classList.add('flash');
   }
 
   /** Add a full-screen layer across the visor, under the readouts. */
@@ -211,7 +238,7 @@ export class Hud {
     this.updateEnvironment(s);
     this.updateOxygen(s);
     // In Drone Siege the air only matters outside: the oxygen readout shows when you're out or not full.
-    this.el.oxygen.style.display = s.mode === 'siege' && s.inside && s.oxygen.fraction > 0.999 ? 'none' : '';
+    this.el.oxygen.style.display = (s.mode === 'siege' || s.mode === 'salvage') && s.inside && s.oxygen.fraction > 0.999 ? 'none' : '';
     this.updateFuel(s);
     this.updateScore(s);
     this.updateAmmo(s);
@@ -252,9 +279,16 @@ export class Hud {
 
   private updateClock(s: HudState) {
     const { timer, timerLabel } = this.el;
-    const show = s.timeLeft !== null || s.survived !== null;
+    const show = s.timeLeft !== null || s.survived !== null || s.salvage !== null;
     timer.style.display = timerLabel.style.display = show ? 'block' : 'none';
-    if (s.timeLeft !== null) {
+    timer.classList.toggle('storm', s.salvage !== null && (s.salvage.stormHit || s.salvage.timeLeft <= 120));
+    timer.classList.toggle('storm-close', s.salvage !== null && (s.salvage.stormHit || s.salvage.timeLeft <= 30));
+    if (s.salvage) {
+      // Salvage Run: the solar storm's countdown, warm-colored in its last two minutes.
+      timerLabel.textContent = s.salvage.stormHit ? 'SOLAR STORM · RADIATION' : 'SOLAR STORM IN';
+      timer.textContent = s.salvage.stormHit ? 'GET INSIDE' : formatTime(Math.ceil(s.salvage.timeLeft));
+      timer.classList.remove('urgent');
+    } else if (s.timeLeft !== null) {
       timerLabel.textContent = MODE_NAMES[s.mode];
       timer.textContent = formatTime(Math.ceil(s.timeLeft));
       timer.classList.toggle('urgent', s.timeLeft <= 10);
@@ -303,6 +337,8 @@ export class Hud {
   }
 
   private updateScore(s: HudState) {
+    if (s.salvage) return this.updateHaul(s.salvage);
+    this.el.score.classList.remove('haul');
     const { scoring } = s;
     const siege = s.siege !== null;
     this.el.scoreLabel.textContent = siege ? 'POINTS' : 'SCORE';
@@ -316,6 +352,19 @@ export class Hud {
     const accuracy = scoring.accuracy;
     const accuracyText = `ACCURACY ${accuracy === null ? '-' : `${accuracy.toFixed(0)}%`}`;
     this.el.accuracy.textContent = siege ? `DRONES ${s.siege!.kills} · ${accuracyText}` : `${accuracyText} · HITS ${scoring.shotsHit}`;
+  }
+
+  // Salvage Run: banked salvage is the score; under it, what you're carrying and how heavy it is.
+  private updateHaul(h: SalvageReadout) {
+    this.el.score.classList.add('haul');
+    this.el.score.classList.toggle('overloaded', h.load === 'OVERLOADED');
+    this.el.scoreLabel.textContent = 'BANKED SALVAGE';
+    this.el.points.textContent = h.banked.toLocaleString('en-US');
+    this.el.combo.textContent = h.carried > 0 ? `CARRYING ${h.carried.toLocaleString('en-US')} · ${h.load}` : 'CARRYING NOTHING';
+    this.el.combo.classList.toggle('empty', h.carried <= 0);
+    this.el.meter.parentElement!.style.visibility = 'visible';
+    this.el.meter.style.width = `${(h.burden * 100).toFixed(0)}%`;
+    this.el.accuracy.textContent = `CACHES ${h.caches}/${h.cachesTotal} · DRONES ${h.kills}`;
   }
 
   private updateAmmo(s: HudState) {
@@ -353,11 +402,12 @@ export class Hud {
     if (slots !== this.shown.slots) {
       this.shown.slots = slots;
       this.el.slots.innerHTML = slots;
+      this.el.slots.classList.toggle('many', (siege?.slots.length ?? 0) > 2);
     }
     const prompt = siege?.prompt;
     const price = prompt && prompt.price !== null ? ` · <span class="${prompt.affordable ? 'price' : 'price short'}">${prompt.price}</span>` : '';
     const note = prompt?.note ? ` · <span class="note">${prompt.note}</span>` : '';
-    const html = prompt ? `PRESS E · ${prompt.text}${price}${note}` : '';
+    const html = prompt ? `${prompt.hold ? 'HOLD' : 'PRESS'} E · ${prompt.text}${price}${note}` : '';
     if (html !== this.shown.prompt) {
       this.shown.prompt = html;
       this.el.prompt.innerHTML = html;

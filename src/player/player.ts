@@ -14,6 +14,8 @@ function capsuleHalfHeight(totalHeight: number) {
 // how far we can actually move each frame without going through anything.
 export class Player {
   readonly jetpack = new Jetpack();
+  /** How much a load slows you, 0 to 1 (Salvage Run: what you're carrying). Cuts speed and jetpack lift. */
+  burden = 0;
   readonly velocity = new THREE.Vector3();
   grounded = false;
   crouched = false;
@@ -96,6 +98,7 @@ export class Player {
     this.sprinting = sprinting && this.grounded;
     let speed = this.crouched ? cfg.crouchWalkSpeed : sprinting ? cfg.sprintSpeed : cfg.walkSpeed;
     if (aiming) speed *= CONFIG.rifle.adsMoveScale;
+    speed *= 1 - this.burden;
 
     // Ease horizontal velocity toward the target. In the air you only steer
     // a little, and with no keys held you keep your momentum.
@@ -124,10 +127,11 @@ export class Player {
     this.jetpack.update(dt, this.grounded, wantsThrust);
     if (this.jetpack.thrusting) {
       const jp = CONFIG.jetpack;
-      if (this.velocity.y < jp.maxUpSpeed) this.velocity.y += jp.upThrust * dt;
+      const lift = 1 - this.burden;
+      if (this.velocity.y < jp.maxUpSpeed) this.velocity.y += jp.upThrust * lift * dt;
       // Extra push in the direction you're steering. With no keys held it goes straight up.
-      this.velocity.x += wish.x * jp.forwardThrust * dt;
-      this.velocity.z += wish.z * jp.forwardThrust * dt;
+      this.velocity.x += wish.x * jp.forwardThrust * lift * dt;
+      this.velocity.z += wish.z * jp.forwardThrust * lift * dt;
     }
 
     this.move(dt);

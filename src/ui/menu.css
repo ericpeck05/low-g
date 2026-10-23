@@ -53,3 +53,24 @@
 .menu td.big { font-size: 18px; text-align: right; }
 .menu .new-best { color: var(--amber); letter-spacing: 0.3em; }
 .menu .scroll { max-height: calc(100vh - 220px); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+
+/* Salvage Run results: the Quartermaster's progress. */
+.menu .quartermaster { background: var(--panel-solid); border: 1px solid rgba(255, 163, 26, 0.5); padding: 12px 16px;
+  display: flex; flex-direction: column; gap: 8px; }
+.menu .qm-top { display: flex; justify-content: space-between; letter-spacing: 0.2em; }
+.menu .qm-level { color: var(--amber); }
+.menu .qm-added { color: var(--white); font-size: 12px; letter-spacing: 0.12em; }
+.menu .qm-added small, .menu .qm-unlock small { color: var(--dim); font-size: 11px; letter-spacing: 0.08em; }
+.menu .qm-bar { height: 8px; background: rgba(245, 240, 232, 0.12); }
+.menu .qm-bar b { display: block; height: 100%; background: var(--amber); box-shadow: 0 0 10px rgba(255, 163, 26, 0.6);
+  transition: width 1.4s cubic-bezier(0.2, 0.7, 0.2, 1) 0.3s; }
+.menu .qm-next { color: var(--dim); font-size: 11px; letter-spacing: 0.12em; }
+.menu .qm-unlock { color: var(--white); border-top: 1px solid var(--line); padding-top: 8px; letter-spacing: 0.14em; }
+.menu .qm-unlock span { color: #000; background: var(--amber); padding: 1px 6px; margin-right: 6px; font-size: 11px; }
+/* With five modes the card list can outgrow a short window: let the column scroll, with a
+   thin dark scrollbar (not the browser's default). */
+.menu.side .column { max-height: 100vh; overflow-y: auto; box-sizing: border-box;
+  scrollbar-width: thin; scrollbar-color: rgba(255, 163, 26, 0.45) transparent; }
+.menu.side .column::-webkit-scrollbar { width: 6px; }
+.menu.side .column::-webkit-scrollbar-thumb { background: rgba(255, 163, 26, 0.45); }
+.menu .mode { padding-top: 11px; padding-bottom: 11px; gap: 5px; }

@@ -56,7 +56,7 @@ export class SpawnPoints {
         area,
         position,
         exit: exit.normalize(),
-        inside: area !== 'surface',
+        inside: area !== 'surface' && area !== 'roaming',
         warning: false,
         warmup: 0,
         cooldown: 0,
@@ -124,6 +124,9 @@ export class SpawnPoints {
     }
     drop(MODULES_CENTER.x, MODULES_CENTER.z);
     drop(LANDING_PAD.x + 20, LANDING_PAD.z + 10);
+    // Drops that can be put anywhere (Salvage Run brings drones down near you). Their area is
+    // never one of the sections, so pick() never chooses them on its own.
+    for (let i = 0; i < 8; i++) add('skyDrop', 'roaming', new THREE.Vector3(0, -500, 0), new THREE.Vector3(0, -1, 0), null);
 
     const frames = new THREE.Mesh(mergeGeometries(this.frames)!, MATERIALS.lightPanel);
     frames.castShadow = true;
@@ -155,6 +158,16 @@ export class SpawnPoints {
       if (roll <= 0) return choices[i];
     }
     return choices[choices.length - 1];
+  }
+
+  /** A free movable drop point, moved to `position` (or null if they're all busy). */
+  roaming(position: THREE.Vector3, exit: THREE.Vector3) {
+    const point = this.points.find((p) => p.area === 'roaming' && !p.warning && p.cooldown <= 0);
+    if (!point) return null;
+    point.position.copy(position);
+    point.exit.copy(exit).normalize();
+    point.flare.position.copy(position);
+    return point;
   }
 
   /** Light a point up: a drone is coming out of it shortly. */

@@ -46,6 +46,9 @@
 .ammo .slots { display: flex; justify-content: flex-end; gap: 14px; margin-top: 9px; font-size: 10px;
   color: var(--faint); letter-spacing: 0.12em; }
 .ammo .slots:empty { display: none; }
+.ammo .slots span { white-space: nowrap; }
+/* Three guns (Salvage Run with the Quartermaster's SMG): stacked, so the names stay on one line. */
+.ammo .slots.many { flex-direction: column; align-items: flex-end; gap: 3px; }
 .ammo .slots .on { color: var(--amber); }
 
 /* Status: where you are and what's outside your suit. */
@@ -63,6 +66,17 @@
 .score .combo { color: var(--amber); font-size: 15px; margin-top: 6px; min-height: 18px; }
 .score .meter { height: 3px; background: rgba(245, 240, 232, 0.12); margin-top: 5px; }
 .score .meter div { height: 100%; width: 0; background: var(--amber); }
+/* Salvage Run: the haul. The meter is how much your load slows you. */
+.score.haul .combo { font-size: 13px; letter-spacing: 0.1em; }
+.score.haul .combo.empty { color: var(--faint); }
+.score.haul .meter { height: 4px; }
+.score.haul.overloaded .combo, .score.haul.overloaded .meter div { color: var(--orange); background: var(--orange); }
+.score.haul.overloaded .combo { background: none; animation: hud-blink 1s steps(2) infinite; }
+.score.flash .value { animation: score-flash 1.2s ease-out; transform-origin: right center; }
+@keyframes score-flash {
+  0% { color: var(--amber); transform: scale(1.18); text-shadow: 0 0 16px rgba(255, 163, 26, 0.9), 0 0 2px #000; }
+  100% { transform: scale(1); }
+}
 
 /* Ammo */
 .ammo .value { font-size: 40px; }
@@ -86,6 +100,9 @@
 .compass .needle { position: absolute; left: 50%; bottom: 0; width: 2px; height: 16px; margin-left: -1px; background: var(--amber); }
 .timer { font-size: 30px; letter-spacing: 0.04em; display: none; }
 .timer.urgent { color: var(--amber); }
+/* Salvage Run's storm clock: warm in the last two minutes, blinking in the last thirty seconds. */
+.timer.storm { color: var(--amber); text-shadow: 0 0 12px rgba(255, 140, 30, 0.55), 0 0 2px #000; }
+.timer.storm-close { color: var(--orange); animation: hud-blink 0.8s steps(2) infinite; }
 .timer-label { color: var(--dim); font-size: 11px; letter-spacing: 0.16em; display: none; }
 
 /* Center: crosshair, hit marker, floating points, warnings. Not tilted: they line up with your aim. */

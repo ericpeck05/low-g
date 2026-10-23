@@ -1,5 +1,7 @@
+import { CONFIG } from '../config';
 import { bestSiegeKills, clearHighScores, formatTime, loadHighScores } from '../core/highScores';
 import { MODE_NAMES, type EndReason, type Mode } from '../core/session';
+import { PERKS, loadRecord, nextPerk, quartermasterLevel } from '../salvage/quartermaster';
 import { LIMITS, QUALITY_PRESETS, type Quality, settings } from '../core/settings';
 import type { Scoring } from '../targets/scoring';
 import './theme.css';
@@ -13,6 +15,7 @@ const MODE_BLURBS: Record<Mode, string> = {
   timeTrial: '60 seconds. Highest score wins. Going outside costs oxygen.',
   oxygenRun: 'Locked out on the surface. Every hit buys air, and the air goes faster the longer you last.',
   siege: 'Rounds of hostile drones that shoot back. Earn points to buy guns, open the city section by section, get the power back on out on the surface, install suit mods and Overclock your weapons. Survive as many rounds as you can.',
+  salvage: 'A solar storm hits in ten minutes. Crack open the wreckage out on the plain and carry it back through an airlock before it does. The farther out, the richer, and the more drones come. Die out there and you lose what you carry.',
 };
 
 const CONTROLS: [string, string][] = [
@@ -26,7 +29,8 @@ const CONTROLS: [string, string][] = [
   ['Shift', 'Sprint'],
   ['C', 'Crouch'],
   ['E', 'Use, buy (Drone Siege)'],
-  ['1  2  or wheel', 'Switch weapon (Drone Siege)'],
+  ['Hold E', 'Open a cache (Salvage Run)'],
+  ['1  2  3  or wheel', 'Switch weapon (Drone Siege, Salvage Run)'],
   ['[  ]', 'Mouse sensitivity'],
   ['F3', 'Frame rate and stats'],
   ['Esc', 'Pause'],
@@ -39,18 +43,35 @@ export interface RunSummary {
   survived: number; // seconds
   newBest: boolean;
   siege?: { round: number; kills: number; coreKills: number; weakPoints: number; points: number; mostKills: boolean }; // Drone Siege only
+  salvage?: SalvageSummary; // Salvage Run only
+}
+
+/** A Salvage Run's tallies, and what it did for the Quartermaster. */
+export interface SalvageSummary {
+  banked: number;
+  caches: number;
+  cachesTotal: number;
+  trips: number;
+  kills: number;
+  lost: number;
+  timeOutside: number;
+  counted: number; // added to the lifetime total (banked plus insurance on what was lost)
+  lifetimeBefore: number;
+  lifetimeAfter: number;
 }
 
 const END_TITLES: Record<EndReason, string> = {
   timeUp: "TIME'S UP",
   oxygen: 'OXYGEN DEPLETED',
   destroyed: 'SUIT BREACHED',
+  sheltered: 'SHELTERED FROM THE STORM',
 };
 
 /** A saved best result in words: a time, a score, or a drone count. */
 function recordText(mode: Mode, value: number) {
   if (mode === 'oxygenRun') return `${formatTime(value)} SURVIVED`;
   if (mode === 'siege') return `ROUND ${value}`;
+  if (mode === 'salvage') return `${value.toLocaleString('en-US')} BANKED`;
   return `${value.toLocaleString('en-US')} PTS`;
 }
 
@@ -109,7 +130,8 @@ export class Menu {
     const cards = (Object.keys(MODE_NAMES) as Mode[])
       .map((mode) => {
         const kills = mode === 'siege' && bestSiegeKills() ? ` · ${bestSiegeKills()} KILLS` : '';
-        const record = best[mode] ? `BEST ${recordText(mode, best[mode])}${kills}` : 'NO RECORD YET';
+        const level = mode === 'salvage' ? ` · QUARTERMASTER LV ${quartermasterLevel(loadRecord().lifetime)}` : '';
+        const record = (best[mode] ? `BEST ${recordText(mode, best[mode])}${kills}` : 'NO RECORD YET') + level;
         return `<button class="mode" data-start="${mode}">
           <span class="title">${MODE_NAMES[mode]}</span>
           <span class="blurb">${MODE_BLURBS[mode]}</span>
@@ -218,7 +240,18 @@ export class Menu {
     const rows: [string, string][] = [];
     const accuracyText = accuracy === null ? '-' : `${accuracy.toFixed(1)}%`;
     if (run.mode === 'oxygenRun' || run.siege) rows.push(['SURVIVED', formatTime(run.survived)]);
-    if (run.siege) {
+    const haul = run.salvage;
+    if (haul) {
+      rows.push(
+        ['SALVAGE BANKED', haul.banked.toLocaleString('en-US')],
+        ['CACHES OPENED', `${haul.caches} / ${haul.cachesTotal}`],
+        ['TRIPS HOME', String(haul.trips)],
+        ['DRONES DESTROYED', String(haul.kills)],
+        ['LOST ON THE SURFACE', haul.lost > 0 ? haul.lost.toLocaleString('en-US') : '-'],
+        ['TIME OUTSIDE', formatTime(haul.timeOutside)],
+        ['ACCURACY', accuracyText],
+      );
+    } else if (run.siege) {
       rows.unshift(['ROUND REACHED', String(run.siege.round)]);
       rows.push(
         ['DRONES DESTROYED', String(run.siege.kills)],
@@ -242,6 +275,7 @@ export class Menu {
       ${run.newBest ? '<div class="new-best">NEW BEST</div>' : ''}
       ${run.siege?.mostKills ? '<div class="new-best">MOST KILLS YET</div>' : ''}
       <table>${rows.map(([a, b]) => `<tr><td>${a}</td><td class="big">${b}</td></tr>`).join('')}</table>
+      ${haul ? quartermasterReport(haul) : ''}
       <div class="buttons">
         <button class="primary" data-start="${run.mode}">PLAY AGAIN</button>
         <button data-quit>MENU</button>
@@ -294,6 +328,31 @@ export class Menu {
     });
     // Put keyboard focus on the first button so Enter works straight away.
     this.root.querySelector<HTMLElement>('button.primary, button')?.focus({ preventScroll: true });
+    // The Quartermaster's bar fills from where it was to where this run took it.
+    const fill = this.root.querySelector<HTMLElement>('.qm-bar b');
+    if (fill) requestAnimationFrame(() => requestAnimationFrame(() => (fill.style.width = fill.dataset.to!)));
   }
+}
+
+// The results' Quartermaster panel: the level, what this run added, the bar toward the
+// next perk (filling up as it shows), and any perk this run unlocked.
+function quartermasterReport(haul: SalvageSummary) {
+  const before = quartermasterLevel(haul.lifetimeBefore);
+  const level = quartermasterLevel(haul.lifetimeAfter);
+  const next = nextPerk(haul.lifetimeAfter);
+  const floor = level === 0 ? 0 : CONFIG.salvage.quartermaster[level - 1];
+  const share = (total: number) => (next ? Math.max(0, Math.min(1, (total - floor) / (next.needed - floor))) : 1);
+  const from = before === level ? share(haul.lifetimeBefore) : 0;
+  const insured = haul.counted - haul.banked;
+  const unlocked = PERKS.slice(before, level)
+    .map((p) => `<div class="qm-unlock"><span>UNLOCKED</span> ${p.name} <small>${p.blurb}</small></div>`)
+    .join('');
+  return `<div class="quartermaster">
+    <div class="qm-top"><span>QUARTERMASTER</span><span class="qm-level">LEVEL ${level}</span></div>
+    <div class="qm-added">+${haul.counted.toLocaleString('en-US')} TO YOUR LIFETIME TOTAL${insured > 0 ? ` <small>(${insured.toLocaleString('en-US')} INSURANCE)</small>` : ''}</div>
+    <div class="qm-bar"><b style="width:${(from * 100).toFixed(1)}%" data-to="${(share(haul.lifetimeAfter) * 100).toFixed(1)}%"></b></div>
+    <div class="qm-next">${next ? `${haul.lifetimeAfter.toLocaleString('en-US')} / ${next.needed.toLocaleString('en-US')} · NEXT: ${next.perk.name}` : `${haul.lifetimeAfter.toLocaleString('en-US')} · EVERY PERK UNLOCKED`}</div>
+    ${unlocked}
+  </div>`;
 }
 

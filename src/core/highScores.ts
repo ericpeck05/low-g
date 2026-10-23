@@ -1,14 +1,15 @@
+import { clearRecord } from '../salvage/quartermaster';
 import type { Mode } from './session';
 
 // Best results for each mode, saved in this browser only (localStorage).
 // Range and Time Trial keep the best score; Oxygen Run keeps the longest survival time;
-// Drone Siege keeps the highest round reached.
+// Drone Siege keeps the highest round reached; Salvage Run, the biggest haul banked.
 
 const KEY = 'lowg.highScores.v1';
 
 export type HighScores = Record<Mode, number>;
 
-const EMPTY: HighScores = { range: 0, timeTrial: 0, oxygenRun: 0, siege: 0 };
+const EMPTY: HighScores = { range: 0, timeTrial: 0, oxygenRun: 0, siege: 0, salvage: 0 };
 
 // Drone Siege's record is saved as "siegeRound". (Its first test version saved drone
 // counts as "siege"; those are ignored rather than shown as rounds.)
@@ -74,4 +75,5 @@ export function clearHighScores() {
   } catch {
     // Nothing saved to clear.
   }
+  clearRecord();
 }

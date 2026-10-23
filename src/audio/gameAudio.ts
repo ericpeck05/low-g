@@ -3,6 +3,7 @@ import { CONFIG } from '../config';
 import { AudioEngine, type Bus } from './engine';
 import type { WeaponId } from '../weapons/weaponSpec';
 import { Music, type MusicState } from './music';
+import * as salvage from './salvageSounds';
 import * as siege from './siegeSounds';
 import * as synth from './synth';
 
@@ -19,6 +20,7 @@ export interface AudioFrame {
   thrusting: boolean;
   exertion: number; // 0 resting, 1 sprinting or flying
   suitLow: boolean; // Drone Siege: suit integrity critical
+  radiation: number; // Salvage Run: 0 to 1, how hard the Geiger counter is clicking
   music: MusicState;
 }
 
@@ -33,6 +35,7 @@ export class GameAudio {
   private stress = 0;
   private alarmTimer = 0;
   private suitAlarmTimer = 0;
+  private geigerTimer = 0;
   private lastPlayed = new Map<string, number>(); // for spacing out sounds many drones make at once
   private music: Music;
   private variant = 0;
@@ -286,6 +289,37 @@ export class GameAudio {
     this.play(this.sounds.revive, 'suit', { gain: 0.8 });
   }
 
+  // ---- Salvage Run ----
+
+  /** Working a cache open: ticks that climb in pitch as it nears open. */
+  cacheWork(position: THREE.Vector3, progress: number) {
+    this.play(this.sounds.cacheWork, 'suit', { gain: 0.35, rate: 0.8 + progress * 0.7, position });
+  }
+
+  cacheOpen(position: THREE.Vector3, big: boolean) {
+    this.play(big ? this.sounds.vaultOpen : this.sounds.cacheOpen, 'suit', { gain: 0.75, position });
+  }
+
+  cacheAlarm(position: THREE.Vector3) {
+    this.play(this.sounds.cacheAlarm, 'suit', { gain: 0.5, position });
+  }
+
+  banked() {
+    this.play(this.sounds.banked, 'suit', { gain: 0.75 });
+  }
+
+  stormSiren() {
+    this.play(this.sounds.stormSiren, 'suit', { gain: 0.55 });
+  }
+
+  stormHit() {
+    this.play(this.sounds.stormHit, 'suit', { gain: 0.9 });
+  }
+
+  threatUp() {
+    this.play(this.sounds.threatUp, 'suit', { gain: 0.5 });
+  }
+
   droneExplosion(position: THREE.Vector3) {
     this.play(this.pick(this.sounds.droneExplosions), 'world', { gain: 1, position, rate: 0.92 + Math.random() * 0.16 });
   }
@@ -311,6 +345,18 @@ export class GameAudio {
     this.breathe(f, vacuum);
     this.alarm(f);
     this.suitAlarm(f);
+    this.geiger(f);
+  }
+
+  // The Geiger counter: random clicks, faster as the radiation climbs.
+  private geiger(f: AudioFrame) {
+    if (f.radiation <= 0.02) return;
+    this.geigerTimer -= f.dt;
+    while (this.geigerTimer <= 0) {
+      const perSecond = 2 + f.radiation * 45;
+      this.geigerTimer += -Math.log(1 - Math.random()) / perSecond; // clicks at random, like the real thing
+      this.play(this.pick(this.sounds.geigerClicks), 'suit', { gain: 0.15 + f.radiation * 0.25, rate: 0.9 + Math.random() * 0.2 });
+    }
   }
 
   // Suit integrity critical: a fast warble, inside or out, until it repairs.
@@ -531,5 +577,14 @@ function buildSounds(c: BaseAudioContext) {
     emp: siege.emp(c),
     o2Surge: siege.o2Surge(c),
     revive: siege.revive(c),
+    cacheWork: salvage.cacheWork(c),
+    cacheOpen: salvage.cacheOpen(c),
+    vaultOpen: salvage.vaultOpen(c),
+    banked: salvage.banked(c),
+    stormSiren: salvage.stormSiren(c),
+    stormHit: salvage.stormHit(c),
+    cacheAlarm: salvage.cacheAlarm(c),
+    threatUp: salvage.threatUp(c),
+    geigerClicks: range(3).map((i) => salvage.geigerClick(c, i)),
   };
 }

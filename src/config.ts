@@ -279,7 +279,61 @@ export const CONFIG = {
     opposition: 0.45, // extra brightness of ground seen with the sun behind you (the "opposition surge")
   },
 
-  // Drone Siege: hostile drones that shoot back (see DRONE_SIEGE.md).
+  // Salvage Run: an extraction mode on the surface (see SALVAGE_RUN.md).
+  salvage: {
+    stormTime: 600, // seconds until the solar storm hits
+    warnings: [120, 60, 30], // seconds left when the storm warnings sound
+    stormDamage: 12, // suit integrity per second outside once the storm has hit
+    radiationBuild: 60, // seconds before the storm that the radiation starts creeping into the visor
+    start: { x: 0, y: 0.05, z: 79, bearing: 0 }, // inside the dome, facing airlock S
+    oxygenDrain: 0.7, // oxygen drains at this share of the usual rate outside (about 80 s from full)
+    insideRepair: 25, // suit integrity per second mended inside the dome
+    recallDelay: 2.5, // seconds inside before the drones outside lose your signal and pull back
+    // The kinds of cache: how far out, how much salvage, how long to open (hold E),
+    // how much heat opening one adds, and how many drones its alarm calls in.
+    caches: {
+      scrap: { name: 'SCRAP CRATE', range: [100, 140], value: [60, 120], openTime: 1.6, heat: 6, guards: 0, count: 6 },
+      cargo: { name: 'CARGO POD', range: [140, 190], value: [160, 300], openTime: 2.4, heat: 10, guards: 0, count: 6 },
+      vault: { name: 'ARMORED VAULT', range: [190, 235], value: [420, 700], openTime: 3.4, heat: 18, guards: 2, count: 3 },
+      blackBox: { name: 'BLACK BOX', range: [215, 245], value: [1200, 1200], openTime: 4.5, heat: 35, guards: 4, count: 1 },
+    },
+    extraChance: 0.45, // chance a crate or pod also holds an oxygen canister, ammo or a suit patch (vaults and the black box always do)
+    oxygenCanister: 40, // oxygen it gives
+    suitPatch: 50, // integrity it gives
+    killSalvage: 15, // salvage for each drone destroyed
+    // Carrying slows you: this share of speed and jetpack lift per 1000 salvage, up to `maxSlow`.
+    weightPer1000: 0.07,
+    maxSlow: 0.35,
+    loads: [800, 2000, 3500], // salvage carried where the load goes from LIGHT to MEDIUM, HEAVY and OVERLOADED
+    // Heat: rises outside, with each cache opened and with gunfire; cools inside.
+    heatOutside: 0.6, // per second
+    heatPerShot: 0.25,
+    heatCooling: 3, // per second inside
+    threatSteps: [20, 40, 60, 80], // heat where threat levels 2, 3, 4 and 5 begin
+    // At each threat level: most drones out at once, seconds between drops, and what can come.
+    threat: [
+      { alive: 2, interval: 9, types: ['scout'], says: 'SCOUT DRONES' },
+      { alive: 3, interval: 7.5, types: ['scout', 'scout', 'gunner'], says: 'GUNNERS INBOUND' },
+      { alive: 5, interval: 6, types: ['scout', 'gunner', 'kamikaze', 'kamikaze'], says: 'KAMIKAZES INBOUND' },
+      { alive: 6, interval: 5, types: ['scout', 'gunner', 'kamikaze', 'sniper', 'shielded'], says: 'SNIPERS INBOUND' },
+      { alive: 8, interval: 4, types: ['gunner', 'kamikaze', 'sniper', 'shielded', 'gunner'], says: 'EVERYTHING INBOUND' },
+    ],
+    // As the storm nears, the threat never drops below these levels.
+    stormFloor: [
+      { timeLeft: 180, level: 3 },
+      { timeLeft: 60, level: 4 },
+    ],
+    droneRound: 3, // drones are as tough as Drone Siege's round 3 at threat level 1, and a round tougher each level up
+    firstDrop: 12, // seconds outside before the first drone drops in
+    dropDistance: [40, 60], // meters from you that drones drop in
+    guardDistance: [20, 32], // meters from a cache that its alarm's drones drop in
+    dropHeight: 38, // meters above the ground they appear
+    insurance: 0.2, // share of salvage lost on the surface that still counts toward the Quartermaster
+    quartermaster: [2500, 7000, 14000, 24000, 40000], // lifetime salvage for each perk
+    bigTank: 1.3, // the Quartermaster's bigger oxygen tank
+    medicShield: 3, // seconds untouchable after the Auto-Medic gets you up
+  },
+
   siege: {
     maxDrones: 24, // most hostile drones alive at once (the size of the drone pool)
     maxBolts: 96, // most plasma bolts in flight at once

@@ -5,16 +5,18 @@ import { CONFIG } from '../config';
 //  timeTrial  - 60 seconds, highest score wins
 //  oxygenRun  - locked outside the dome; survive as long as you can by hitting targets for air
 //  siege      - Drone Siege: hostile drones that shoot back (see DRONE_SIEGE.md)
-export type Mode = 'range' | 'timeTrial' | 'oxygenRun' | 'siege';
+//  salvage    - Salvage Run: carry wreckage back inside before a solar storm (see SALVAGE_RUN.md)
+export type Mode = 'range' | 'timeTrial' | 'oxygenRun' | 'siege' | 'salvage';
 
 export const MODE_NAMES: Record<Mode, string> = {
   range: 'RANGE',
   timeTrial: 'TIME TRIAL',
   oxygenRun: 'OXYGEN RUN',
   siege: 'DRONE SIEGE',
+  salvage: 'SALVAGE RUN',
 };
 
-export type EndReason = 'timeUp' | 'oxygen' | 'destroyed';
+export type EndReason = 'timeUp' | 'oxygen' | 'destroyed' | 'sheltered';
 
 // Tracks which mode is running, its clock, and whether it's over.
 export class Session {

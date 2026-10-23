@@ -27,6 +27,9 @@ import { WeaponStations } from './siege/stations';
 import { AlertLighting } from './siege/alertLighting';
 import { Progression } from './siege/progression';
 import { SiegeHud } from './ui/siegeHud';
+import { SalvageHud } from './ui/salvageHud';
+import { SalvageRun } from './salvage/salvage';
+import { recordRun } from './salvage/quartermaster';
 import { setAnnouncerVolume } from './audio/announcer';
 import type { HitResult } from './targets/target';
 import { Ejecta } from './weapons/ejecta';
@@ -118,9 +121,12 @@ async function boot() {
       session.state = 'menu';
       siege.stop();
       progression.reset(false);
+      salvage.reset(false);
+      composer.setTint(NO_TINT);
       suitHud.setActive(false);
       roundHud.setActive(false);
       siegeHud.setActive(false);
+      salvageHud.setActive(false);
       menu.showMain();
     },
   });
@@ -154,6 +160,10 @@ async function boot() {
   });
   // On the main menu the camera drifts slowly around the city behind the menu.
   let menuOrbit = 0.6;
+  // Salvage Run's storm warms the whole picture as its radiation builds.
+  const NO_TINT = new THREE.Color(1, 1, 1);
+  const STORM_TINT = new THREE.Color(1, 0.84, 0.66);
+  const stormTint = new THREE.Color();
 
   // A warm light at the gun that flashes on each shot and lights up nearby walls.
   const muzzleLight = new THREE.PointLight(0xffb050, 0, 12);
@@ -178,6 +188,10 @@ async function boot() {
     keepLights: [muzzleLight, siege.effects.light],
   });
   composer.excludeFromAO(...progression.glowObjects);
+  // Salvage Run's caches, storm clock, banking and threat (its drones are Drone Siege's).
+  const salvageHud = new SalvageHud(hud);
+  const salvage = new SalvageRun({ scene, world, siege, player, oxygen, loadout, audio, hud, salvageHud });
+  composer.excludeFromAO(...salvage.glowObjects);
 
   async function lockMouse() {
     audio.unlock(); // browsers only allow sound after a click, and this runs from one
@@ -190,28 +204,35 @@ async function boot() {
 
   // A fresh run: to the mode's start spot, full air and magazine, all targets up, score zeroed.
   function startRun(mode: Mode) {
+    const drones = mode === 'siege' || mode === 'salvage';
     session.start(mode);
     scoring.reset();
     targets.reset();
     footsteps.clear();
     ejecta.clear();
     tracers.clear();
-    // Drone Siege starts you with a sidearm and an empty slot; everything else, the rifle.
-    loadout.equip(mode === 'siege' ? [siegeWeapon('sidearm'), null] : [rangeRifle()]);
-    viewmodel.setWeapon(loadout.current.spec.id);
+    salvageHud.setActive(mode === 'salvage');
+    composer.setTint(NO_TINT);
     progression.reset(mode === 'siege');
+    salvage.reset(mode === 'salvage'); // (puts the Quartermaster's perks on you)
+    // Drone Siege starts you with a sidearm and an empty slot, Salvage Run with a sidearm and
+    // a carbine; everything else, the rifle.
+    loadout.equip(mode === 'siege' ? [siegeWeapon('sidearm'), null] : mode === 'salvage' ? salvage.startingGuns() : [rangeRifle()]);
+    viewmodel.setWeapon(loadout.current.spec.id);
     stations.setActive(mode === 'siege');
     oxygen.reset();
     // The oxygen run keeps you outside: the airlocks stay sealed.
     for (const airlock of city.airlocks) airlock.locked = mode === 'oxygenRun';
-    placePlayer(mode === 'oxygenRun' ? CONFIG.scoring.oxygenRunStart : CONFIG.scoring.rangeStart);
-    // Drone Siege: the practice targets stand down and hostile drones come in.
-    targets.setActive(mode !== 'siege');
-    suitHud.setActive(mode === 'siege');
+    placePlayer(mode === 'oxygenRun' ? CONFIG.scoring.oxygenRunStart : mode === 'salvage' ? CONFIG.salvage.start : CONFIG.scoring.rangeStart);
+    // With drones about, the practice targets stand down.
+    targets.setActive(!drones);
+    suitHud.setActive(drones);
     roundHud.setActive(mode === 'siege');
     siegeHud.setActive(mode === 'siege');
-    if (mode === 'siege') siege.start();
+    if (drones) siege.start();
     else siege.stop();
+    // Salvage Run brings its drones in itself, so the rounds don't run.
+    siege.autoRounds = mode === 'siege';
     menu.hide();
     void lockMouse();
   }
@@ -252,7 +273,10 @@ async function boot() {
       else if (event.kind === 'beep') audio.kamikazeBeep(event.position);
       else if (event.kind === 'carrierDown') audio.carrierDown(event.position);
       else if (event.kind === 'maxAmmo') progression.dropMaxAmmo(event.position, player.feet);
-      else if (event.kind === 'killed') progression.onKill(event.position);
+      else if (event.kind === 'killed') {
+        if (session.mode === 'salvage') salvage.onKill();
+        else progression.onKill(event.position);
+      }
       else if (event.kind === 'singularity') {
         if (event.formed) audio.singularityHum(event.position);
         else audio.singularityCollapse(event.position);
@@ -260,13 +284,43 @@ async function boot() {
       else if (event.kind === 'playerHit') {
         audio.suitHit();
         suitHud.hit(event.from);
-      } else if (event.kind === 'suitDestroyed' && session.state === 'playing') {
-        // Auto-Medic gets you back up once; otherwise that's the game.
-        if (progression.revive('suit')) continue;
-        session.end('destroyed');
-        endRun();
-      }
+        if (session.mode === 'salvage') salvage.onPlayerHit();
+      } else if (event.kind === 'suitDestroyed') suitBroke();
     }
+  }
+
+  // Your suit broke. Auto-Medic may get you back up; otherwise that's the game (and in a
+  // Salvage Run, what you were carrying is lost).
+  function suitBroke() {
+    if (session.state !== 'playing') return;
+    if (session.mode === 'siege' && progression.revive('suit')) return;
+    if (session.mode === 'salvage') {
+      if (salvage.revive('suit')) return;
+      salvage.lose();
+    }
+    session.end('destroyed');
+    endRun();
+  }
+
+  // How much faster than usual oxygen drains outside right now: the Oxygen Run speeds up,
+  // Drone Siege's O2 Recycler slows it, and Salvage Run drains slower so the far wrecks are in reach.
+  function oxygenDrain() {
+    const mode = session.mode === 'siege' ? progression.oxygenDrain : session.mode === 'salvage' ? CONFIG.salvage.oxygenDrain : 1;
+    return session.drainScale * mode;
+  }
+
+  // Drone Siege and Salvage Run both have hostile drones.
+  function dronesOn() {
+    return session.mode === 'siege' || session.mode === 'salvage';
+  }
+
+  // How hard the solar storm's radiation is hitting you, 0 to 1: it creeps in over the
+  // storm's last minute, and is at full strength outside once the storm hits.
+  function radiation() {
+    if (session.mode !== 'salvage' || session.state !== 'playing') return 0;
+    if (salvage.stormHit) return inside ? 0.2 : 1;
+    const k = Math.max(0, 1 - salvage.timeLeft / CONFIG.salvage.radiationBuild);
+    return k * k * (inside ? 0.25 : 0.6);
   }
 
   // bearing: the compass direction to face (180 = toward -z), same as the sky and city layout.
@@ -295,6 +349,7 @@ async function boot() {
       const wasSwitching = loadout.switching;
       if (input.wasPressed('Digit1')) loadout.select(0);
       if (input.wasPressed('Digit2')) loadout.select(1);
+      if (input.wasPressed('Digit3')) loadout.select(2);
       const wheel = input.takeWheel();
       if (wheel !== 0) loadout.cycle(Math.sign(wheel));
       if (!wasSwitching && loadout.switching) audio.weaponSwap();
@@ -326,10 +381,8 @@ async function boot() {
       if (step) audio.footstep(step.hard, step.landing, step.strength);
       // These move colliders (targets, drones, airlock doors), so they go before the physics step.
       targets.update(dt, player.feet);
-      if (session.mode === 'siege') {
-        onSiegeEvents(siege.update(dt, siegePlayer()));
-        progression.update(dt, player.feet);
-      }
+      if (dronesOn()) onSiegeEvents(siege.update(dt, siegePlayer()));
+      if (session.mode === 'siege') progression.update(dt, player.feet);
       for (const event of city.update(dt, player.feet)) {
         if (event.kind === 'doorMoving') audio.doorMoving(event.position);
         else if (event.kind === 'doorStopped') audio.doorStopped(event.position);
@@ -342,10 +395,19 @@ async function boot() {
       // Air: the dome and the airlock chambers are pressurized; everywhere else is vacuum.
       const feet = player.feet;
       inside = isInsideDome(feet) || city.airlocks.some((airlock) => airlock.inChamber(feet));
-      const drain = session.drainScale * (session.mode === 'siege' ? progression.oxygenDrain : 1);
-      if (oxygen.update(dt, inside, drain)) outOfOxygen();
+      if (oxygen.update(dt, inside, oxygenDrain())) outOfOxygen();
 
       if (session.update(dt)) endRun();
+
+      // Salvage Run: the storm clock, the caches, banking and the drones' threat.
+      if (session.mode === 'salvage' && session.state === 'playing') {
+        const end = salvage.update(dt, { feet, look: camera.getWorldDirection(new THREE.Vector3()), inside, holdingUse: input.isDown('KeyE') });
+        stationPrompt = salvage.prompt;
+        if (end === 'sheltered') {
+          session.end('sheltered');
+          endRun();
+        } else if (end === 'destroyed') suitBroke();
+      }
     }
 
     const backdrop = session.state === 'menu';
@@ -417,19 +479,48 @@ async function boot() {
       oxygenLow: oxygen.low,
       thrusting: player.jetpack.thrusting,
       exertion: player.jetpack.thrusting || player.sprinting ? 1 : 0,
-      suitLow: playing && session.mode === 'siege' && siege.suit.low,
-      music: {
-        playing: playing && session.mode === 'siege',
-        fighting: siege.rounds.state === 'fighting',
-        round: siege.rounds.round,
-        special: siege.rounds.state === 'fighting' && siege.rounds.kind !== 'normal',
-        danger: siege.suit.low,
-      },
+      suitLow: playing && dronesOn() && siege.suit.low,
+      radiation: playing ? radiation() : 0,
+      // Salvage Run's music builds with the threat while drones are after you outside.
+      music:
+        session.mode === 'salvage'
+          ? {
+              playing,
+              fighting: !inside && siege.incoming > 0,
+              round: 2 + salvage.level,
+              special: salvage.stormHit || salvage.timeLeft <= 30,
+              danger: siege.suit.low,
+            }
+          : {
+              playing: playing && session.mode === 'siege',
+              fighting: siege.rounds.state === 'fighting',
+              round: siege.rounds.round,
+              special: siege.rounds.state === 'fighting' && siege.rounds.kind !== 'normal',
+              danger: siege.suit.low,
+            },
     });
+    if (dronesOn()) suitHud.update(playing ? dt : 0, siege.suit, player.feet, look.yaw);
     if (session.mode === 'siege') {
-      suitHud.update(playing ? dt : 0, siege.suit, player.feet, look.yaw);
       roundHud.update(playing ? dt : 0, siege.rounds, siege.boss);
       siegeHud.update({ powered: progression.power.on, mods: progression.mods.owned, timers: progression.powerUps.timers });
+    }
+    if (session.mode === 'salvage') {
+      composer.setTint(stormTint.copy(NO_TINT).lerp(STORM_TINT, radiation() * 0.75));
+      const timeLeft = salvage.timeLeft;
+      salvageHud.update({
+        dt: playing ? dt : 0,
+        heading: (((-THREE.MathUtils.radToDeg(look.yaw)) % 360) + 360) % 360,
+        feet: player.feet,
+        sites: salvage.sites.sites,
+        scanner: salvage.perks.has('scanner'),
+        inside,
+        level: salvage.level,
+        heat: salvage.director.heat,
+        stormFloor: CONFIG.salvage.stormFloor.some((f) => timeLeft <= f.timeLeft),
+        holdProgress: playing ? salvage.holdProgress : null,
+        radiation: radiation(),
+        medicReady: salvage.medicReady,
+      });
     }
     hud.update({
       dt,
@@ -442,16 +533,27 @@ async function boot() {
       mode: session.mode,
       timeLeft: session.timeLeft,
       survived: session.mode === 'oxygenRun' ? session.elapsed : null,
-      drainPerSecond: CONFIG.oxygen.drainRate * session.drainScale,
+      drainPerSecond: CONFIG.oxygen.drainRate * oxygenDrain(),
       spread,
       fov: camera.fov,
       heading: (((-THREE.MathUtils.radToDeg(look.yaw)) % 360) + 360) % 360,
       mouse,
       showStats: settings.get().showStats,
       frameTime,
-      siege:
-        session.mode === 'siege'
-          ? { points: siege.points, kills: siege.kills, slots: loadout.slots, slot: loadout.index, prompt: stationPrompt }
+      siege: dronesOn() ? { points: siege.points, kills: siege.kills, slots: loadout.slots, slot: loadout.index, prompt: stationPrompt } : null,
+      salvage:
+        session.mode === 'salvage'
+          ? {
+              banked: salvage.banked,
+              carried: salvage.carried,
+              load: salvage.loadName,
+              burden: salvage.burden / CONFIG.salvage.maxSlow,
+              caches: salvage.cachesOpened,
+              cachesTotal: salvage.sites.sites.length,
+              kills: salvage.kills,
+              timeLeft: salvage.timeLeft,
+              stormHit: salvage.stormHit,
+            }
           : null,
       render: {
         calls: renderer.info.render.calls,
@@ -473,13 +575,14 @@ async function boot() {
   function fireShot(gun: Gun, spread: number) {
     const spec = gun.spec;
     const aim = camera.getWorldDirection(new THREE.Vector3());
-    if (session.mode === 'siege') siege.beginShot();
+    if (dronesOn()) siege.beginShot();
+    if (session.mode === 'salvage') salvage.onShot();
     audio.gunshot(spec.id);
 
     // The Singularity Launcher fires a slow round instead of a hitscan shot.
     if (spec.id === 'singularity') {
       const muzzle = camera.localToWorld(viewmodel.muzzlePoint());
-      if (session.mode === 'siege') siege.launchSingularity(muzzle, applySpread(aim, spread), spec.overclocked, player.collider);
+      if (dronesOn()) siege.launchSingularity(muzzle, applySpread(aim, spread), spec.overclocked, player.collider);
       recoil.kick(gun.aimBlend, spec.recoil);
       viewmodel.fire();
       muzzleLight.position.copy(muzzle);
@@ -500,7 +603,7 @@ async function boot() {
     // The Arc Caster's lightning jumps on from the first drone it hits to others nearby.
     const muzzleAt = camera.localToWorld(viewmodel.muzzlePoint());
     let chainPoints = 0;
-    if (spec.id === 'arc' && session.mode === 'siege') {
+    if (spec.id === 'arc' && dronesOn()) {
       const first = droneHits.find((h) => !h.blocked);
       if (first) {
         const chain = siege.chainLightning(first.index, spec.damage, CONFIG.siege.arc.chains + (spec.overclocked ? 2 : 0));
@@ -519,8 +622,13 @@ async function boot() {
       hud.flashHitmarker(core);
       for (const kill of kills) audio.droneExplosion(kill.position);
       const coreKill = kills.some((h) => h.core);
-      const points = droneHits.reduce((sum, h) => sum + h.points, 0) + chainPoints;
-      hud.showPoints(points, kills.length > 1 ? `×${kills.length}` : coreKill ? 'CORE KILL' : kills.length ? 'KILL' : '', kills.length > 0);
+      if (session.mode === 'salvage') {
+        // Salvage Run has no points: a kill is worth a little salvage.
+        hud.showPoints(kills.length * CONFIG.salvage.killSalvage, 'SALVAGE', true);
+      } else {
+        const points = droneHits.reduce((sum, h) => sum + h.points, 0) + chainPoints;
+        hud.showPoints(points, kills.length > 1 ? `×${kills.length}` : coreKill ? 'CORE KILL' : kills.length ? 'KILL' : '', kills.length > 0);
+      }
     }
     const anyDrone = droneHits[0];
     const earned = scoring.recordShot(targetHit ?? (anyDrone ? { points: 0, label: 'DRONE', bullseye: anyDrone.core } : null));
@@ -565,7 +673,7 @@ async function boot() {
       const hit = castShot(world, camera.position, direction, spec.range, player.collider, passes);
       if (!hit) break;
       const distance = camera.position.distanceTo(hit.point);
-      const drone = session.mode === 'siege' ? siege.tryHit(hit.collider, damageAt(spec, distance), direction) : null;
+      const drone = dronesOn() ? siege.tryHit(hit.collider, damageAt(spec, distance), direction) : null;
       if (drone) {
         impacts.metalSparks(hit.point, hit.normal, drone.core ? 14 : 8);
         end = hit.point;
@@ -624,6 +732,10 @@ async function boot() {
 
   function outOfOxygen() {
     if (session.mode === 'siege' && progression.revive('oxygen')) return;
+    if (session.mode === 'salvage') {
+      if (salvage.revive('oxygen')) return;
+      salvage.lose();
+    }
     if (session.mode === 'range') {
       // Practice is forgiving: you black out and wake up back in the plaza.
       placePlayer(CONFIG.scoring.rangeStart);
@@ -636,16 +748,34 @@ async function boot() {
   }
 
   // Shows the results and records a high score. Time Trial and Range rank by score,
-  // the Oxygen Run by how long you survived, Drone Siege by the round you reached.
+  // the Oxygen Run by how long you survived, Drone Siege by the round you reached,
+  // Salvage Run by the salvage you banked (which also goes to the Quartermaster).
   function endRun() {
     const mode = session.mode;
-    const value = mode === 'oxygenRun' ? Math.floor(session.elapsed) : mode === 'siege' ? siege.rounds.round : scoring.score;
+    const value = mode === 'oxygenRun' ? Math.floor(session.elapsed) : mode === 'siege' ? siege.rounds.round : mode === 'salvage' ? salvage.banked : scoring.score;
     const newBest = submitHighScore(mode, value);
     const siegeStats =
       mode === 'siege'
         ? { round: siege.rounds.round, kills: siege.kills, coreKills: siege.coreKills, weakPoints: siege.weakPointKills, points: siege.pointsEarned, mostKills: submitSiegeKills(siege.kills) }
         : undefined;
-    menu.showResults({ mode, reason: session.endReason ?? 'timeUp', scoring, survived: session.elapsed, newBest, siege: siegeStats });
+    let haul;
+    if (mode === 'salvage') {
+      const record = recordRun(salvage.banked, salvage.lost);
+      haul = {
+        banked: salvage.banked,
+        caches: salvage.cachesOpened,
+        cachesTotal: salvage.sites.sites.length,
+        trips: salvage.trips,
+        kills: salvage.kills,
+        lost: salvage.lost,
+        timeOutside: salvage.timeOutside,
+        counted: record.counted,
+        lifetimeBefore: record.before.lifetime,
+        lifetimeAfter: record.after.lifetime,
+      };
+      salvageHud.setActive(false);
+    }
+    menu.showResults({ mode, reason: session.endReason ?? 'timeUp', scoring, survived: session.elapsed, newBest, siege: siegeStats, salvage: haul });
     document.exitPointerLock();
   }
 
@@ -664,11 +794,13 @@ async function boot() {
   siege.showForWarmUp(true);
   stations.setActive(true);
   progression.showForWarmUp(true);
+  salvage.showForWarmUp(true);
   tick(0);
   composer.render(0, true);
   siege.showForWarmUp(false);
   stations.setActive(false);
   progression.showForWarmUp(false);
+  salvage.showForWarmUp(false);
 
   // The game loop runs once per screen refresh.
   // Cap the frame time so a stall can't make us skip through walls.
@@ -685,7 +817,7 @@ async function boot() {
   // lowg.tick(1 / 60) advances one frame by hand, which is handy for testing.
   if (import.meta.env.DEV) {
     Object.assign(window, {
-      lowg: { renderer, scene, composer, audio, ejecta, input, look, player, camera, world, city, oxygen, recoil, viewmodel, impacts, targets, scoring, session, menu, settings, sun, rocks, sky, siege, suitHud, roundHud, siegeHud, hud, loadout, stations, progression, tracers, tick, startRun },
+      lowg: { renderer, scene, composer, audio, ejecta, input, look, player, camera, world, city, oxygen, recoil, viewmodel, impacts, targets, scoring, session, menu, settings, sun, rocks, sky, siege, suitHud, roundHud, siegeHud, salvage, salvageHud, hud, loadout, stations, progression, tracers, tick, startRun },
     });
   }
 }

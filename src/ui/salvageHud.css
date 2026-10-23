@@ -1,0 +1,60 @@
+/* Salvage Run: the threat panel, compass markers, hold ring, banner and radiation. */
+
+/* Threat: five pips that light hostile red-orange, and the heat bar under them. */
+.salvage-threat .level { color: var(--hostile); }
+.threat-pips { display: flex; gap: 5px; margin-top: 8px; }
+.threat-pips i { flex: 1; height: 12px; border: 1px solid rgba(255, 74, 42, 0.45); background: rgba(255, 74, 42, 0.08);
+  transform: skewX(-18deg); }
+.threat-pips i.on { background: var(--hostile); border-color: var(--hostile); box-shadow: 0 0 8px rgba(255, 60, 30, 0.7); }
+.salvage-threat .heat-row { margin-top: 10px; }
+.salvage-threat .heat-bar { height: 5px; margin-top: 5px; }
+.salvage-threat .heat-bar i.on { background: var(--amber); }
+.salvage-threat .heat-note { color: var(--dim); }
+.salvage-threat.cool .heat-note { color: var(--white); }
+.salvage-threat.cool .threat-pips i.on { background: rgba(255, 74, 42, 0.45); box-shadow: none; }
+.salvage-threat.rise .threat-pips i.on { animation: threat-rise 1s ease-out; }
+@keyframes threat-rise { 0% { background: var(--white); box-shadow: 0 0 14px rgba(255, 140, 90, 1); } }
+
+/* Markers under the compass: a diamond per cache in its kind's color, a gate mark per airlock. */
+.salvage-markers { position: relative; width: 380px; height: 24px; margin-top: -4px;
+  mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent); }
+.smark { position: absolute; left: 0; top: 0; width: 0; will-change: transform; display: none; }
+.smark i { position: absolute; left: -4px; top: 1px; width: 8px; height: 8px; transform: rotate(45deg);
+  box-shadow: 0 0 6px rgba(255, 163, 26, 0.6), 0 0 1px #000; }
+.smark span { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); white-space: nowrap;
+  font-size: 10px; letter-spacing: 0.08em; color: var(--white); }
+.smark.vault i { left: -5px; width: 10px; height: 10px; }
+.smark.blackBox i { left: -6px; top: 0; width: 11px; height: 11px; outline: 1px solid rgba(255, 243, 214, 0.8); outline-offset: 2px; }
+.smark.blackBox span { color: var(--amber); }
+.smark.airlock b { position: absolute; left: -8px; top: -1px; width: 14px; height: 11px; font-size: 9px; line-height: 10px;
+  text-align: center; color: #000; background: var(--white); font-weight: 700; clip-path: polygon(0 30%, 50% 0, 100% 30%, 100% 100%, 0 100%); }
+.smark.airlock span { color: var(--dim); }
+.salvage-markers.ping .smark i { animation: marker-ping 0.6s ease-out; }
+@keyframes marker-ping { 0% { filter: brightness(2); } }
+
+/* The ring round the crosshair while you hold E. */
+.hold-ring { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px;
+  opacity: 0; transition: opacity 0.12s; }
+.hold-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+.hold-ring circle { fill: none; stroke-width: 3; }
+.hold-ring .track { stroke: rgba(245, 240, 232, 0.18); }
+.hold-ring .arc { stroke: var(--amber); filter: drop-shadow(0 0 4px rgba(255, 163, 26, 0.8)); }
+
+/* The banner: good news in amber, threats and the storm in hostile red-orange. */
+.salvage-banner { position: absolute; left: 50%; top: 23%; transform: translateX(-50%); text-align: center;
+  opacity: 0; transition: opacity 0.5s; white-space: nowrap; }
+.salvage-banner .title { color: var(--amber); font-size: 42px; font-weight: 700; letter-spacing: 0.22em;
+  text-shadow: 0 0 18px rgba(255, 163, 26, 0.6), 0 0 2px #000; }
+.salvage-banner.hostile .title { color: var(--hostile); text-shadow: 0 0 18px rgba(255, 60, 30, 0.7), 0 0 2px #000; }
+.salvage-banner .subtitle { color: var(--white); font-size: 13px; letter-spacing: 0.28em; margin-top: 8px; }
+
+/* Radiation: a warm haze and grain from the edges, flickering harder near the end. */
+.radiation { position: absolute; inset: 0; opacity: 0; mix-blend-mode: screen; background-size: 100% 100%, 128px 128px;
+  animation: radiation-grain 0.18s steps(3) infinite; }
+.radiation.strong { animation-duration: 0.09s; }
+@keyframes radiation-grain {
+  0% { background-position: 0 0, 0 0; }
+  33% { background-position: 0 0, 37px 61px; }
+  66% { background-position: 0 0, 83px 19px; }
+  100% { background-position: 0 0, 11px 97px; }
+}
